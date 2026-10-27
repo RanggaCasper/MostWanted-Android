@@ -1,0 +1,38 @@
+# build
+/out/
+/build/
+*.zip
+*.pdb
+*.exe
+*.obj
+*.o
+
+# Android build: Gradle's caches, the native build, SDL cloned by Gradle, the SDK path
+/.gradle/
+/app/build/
+/app/.cxx/
+/third_party/
+/local.properties
+
+# recompiled code, derived from the game
+/generated/
+
+# user's own game files
+/assets/
+/iso/
+/Iso/
+/extracted/
+
+# runtime files
+mostwanted.toml
+/logs/
+/hdd/
+/CrashDumps/
+
+# editors
+.vs/
+.vscode/
+.idea/
+
+# Local temporary folder
+.local
