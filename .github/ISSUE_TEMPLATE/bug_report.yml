@@ -1,0 +1,131 @@
+name: 🐞 Bug report
+description: Something in the game or the app doesn't work as it should
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in as much as you can, since bugs are much easier to fix with the device details and the log.
+
+        > [!WARNING]
+        > Don't attach or link game files (`.iso`, `default.xbe`, game data). Issues that do will be closed.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: After the boss fight with Kintaro, the touch buttons stop responding.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start a new game as Liu Kang
+        2. Reach the Wu Shi Academy
+        3. Open the pause menu with the back button
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: The release you installed, for example `v1.0.0`.
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: Phone or tablet model, and its chipset or GPU if you know it.
+      placeholder: Xiaomi Pad 7 (Snapdragon 7+ Gen 3, Adreno 732)
+    validations:
+      required: true
+
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+      placeholder: Android 15
+    validations:
+      required: true
+
+  - type: dropdown
+    id: files
+    attributes:
+      label: Game files
+      options:
+        - Disc image (.iso)
+        - default.xbe with its data folders
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Game mode
+      description: Where in the game did it happen?
+      options:
+        - Story (single player)
+        - Story (co-op)
+        - Versus
+        - Menus or extras
+        - Other
+
+  - type: dropdown
+    id: input
+    attributes:
+      label: Input
+      description: What were you playing with when it happened?
+      multiple: true
+      options:
+        - Touch controls
+        - Gyroscope
+        - Controller
+        - Keyboard and mouse
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Attach `mostwanted.log` from `MostWanted/logs` on the phone's storage (`Android/data/com.racas.mostwanted/files/logs` without all files access; drag it here), or paste its contents.
+      render: text
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings
+      description: Paste `mostwanted.toml` from `Android/data/com.racas.mostwanted/files` if you changed any settings.
+      render: toml
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Drag images or a short video here if they help show the problem.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues and this hasn't been reported yet.
+          required: true
+        - label: I'm using game files from my own copy of the game.
+          required: true

@@ -1,0 +1,99 @@
+name: 💥 Crash, graphics or performance
+description: The app crashes or won't start, the picture is wrong, or the game runs slowly
+title: "[Crash/Perf]: "
+labels: ["crash/performance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These problems usually depend on the GPU and its driver, so the device details and the log matter most.
+
+        > [!WARNING]
+        > Don't attach or link game files (`.iso`, `default.xbe`, game data).
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of problem
+      multiple: true
+      options:
+        - The app won't start or the game isn't found
+        - Crash during the game
+        - Missing or wrong graphics
+        - Low frame rate or stutter
+        - Sound problems
+        - Overheating or battery drain
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Where in the game, how often, and what you see. For performance, add the FPS you get (turn on the FPS counter in the options).
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and GPU
+      placeholder: Xiaomi Pad 7 (Snapdragon 7+ Gen 3, Adreno 732)
+    validations:
+      required: true
+
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+      placeholder: Android 15
+    validations:
+      required: true
+
+  - type: input
+    id: ram
+    attributes:
+      label: RAM
+      placeholder: 8 GB
+
+  - type: textarea
+    id: graphics
+    attributes:
+      label: Graphics settings
+      description: Render resolution, max frame rate, V-Sync, anisotropic filtering, anti-aliasing and screen filter, or paste `mostwanted.toml`.
+      render: toml
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        Attach `mostwanted.log` from `MostWanted/logs` on the phone's storage (`Android/data/com.racas.mostwanted/files/logs` without all files access; drag it here).
+        For a crash, an `adb logcat` taken right after it happens helps a lot.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Especially for graphics problems.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: My device meets the requirements (Android 10+, arm64, Vulkan 1.1).
+          required: true
+        - label: I searched the existing issues and this hasn't been reported yet.
+          required: true

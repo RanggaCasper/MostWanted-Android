@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Installation guide
+    url: https://github.com/RanggaCasper/MostWanted-Android#installation
+    about: Where the game files go and how to set the app up.
+  - name: 🔧 XboxXBE-Recomp
+    url: https://github.com/TGP482/XboxXBE-Recomp
+    about: Problems with the recompiler or runtime itself, which aren't specific to this port, belong there.

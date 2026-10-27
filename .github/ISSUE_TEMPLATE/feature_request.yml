@@ -1,0 +1,50 @@
+name: ✨ Feature request
+description: Suggest a new option, control or improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like?
+      description: Describe the feature, and the problem or wish behind it.
+      placeholder: A widescreen option so the game fills the whole screen instead of 4:3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Display
+        - Graphics
+        - Touch controls
+        - Gyroscope
+        - Controller
+        - Keyboard and mouse
+        - Sound
+        - Cheats
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Any workaround you use today, or other ways it could work.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, or examples from other ports.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues and this hasn't been requested yet.
+          required: true
