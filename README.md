@@ -9,6 +9,10 @@ The game's x86 code is statically recompiled ahead of time to C++ with [XboxXBE-
 > [!WARNING]
 > Work in progress. See [Status](#status).
 
+## Gameplay
+
+[Watch the gameplay video on YouTube.](https://www.youtube.com/watch?v=0ILO1_gulrg)
+
 ## Installation
 1. Install the APK.
 2. Open **Most Wanted** and allow **all files access** when it asks (on Android 10, the **storage** permission).
@@ -88,6 +92,7 @@ The SDK is vendored in `sdk/`, at the upstream commit in `sdk/UPSTREAM_COMMIT`, 
 - [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) by TGP482: the static recompiler and the portable runtime (Xbox kernel, XDK libraries and Direct3D 8) this port is built on.
 - [Black-Android](https://github.com/RanggaCasper/Black-Android) and [ShaolinMonks-Android](https://github.com/RanggaCasper/ShaolinMonks-Android) by RanggaCasper: the Android host this port is built from.
 - Zukiru: the HDR screen filter.
+- [bagasromadon](https://github.com/bagasromadon): Button Design.
 - [SDL](https://github.com/libsdl-org/SDL), [glslang](https://github.com/KhronosGroup/glslang), [toml++](https://github.com/marzer/tomlplusplus) and [Dear ImGui](https://github.com/ocornut/imgui).
 - [xemu](https://github.com/xemu-project/xemu) and [Cxbx-Reloaded](https://github.com/Cxbx-Reloaded/Cxbx-Reloaded), which XboxXBE-Recomp used as references for Xbox hardware and API behavior.
 

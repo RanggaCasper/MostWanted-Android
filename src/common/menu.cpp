@@ -305,17 +305,18 @@ constexpr Row kCheatRows[] = {
 };
 
 // the credits' names, an info row's id; as they are, untranslated
-const char* const kCreditNames[] = {"Rangga Casper", "Zukiru", "TGP482", "SDL, glslang, toml++, Dear ImGui",
-                                    "xemu, Cxbx-Reloaded"};
+const char* const kCreditNames[] = {"Rangga Casper", "Zukiru", "bagasromadon", "TGP482",
+                                    "SDL, glslang, toml++, Dear ImGui", "xemu, Cxbx-Reloaded"};
 
 // a page of its own: who made the port, and the links to support it
 constexpr Row kCreditRows[] = {
     {Kind::Heading, -1, "CREDITS"},
     {Kind::Info, 0, "ANDROID PORT"},
     {Kind::Info, 1, "HDR"},
-    {Kind::Info, 2, "RECOMPILER AND RUNTIME"},
-    {Kind::Info, 3, "LIBRARIES"},
-    {Kind::Info, 4, "XBOX REFERENCES"},
+    {Kind::Info, 2, "BUTTON DESIGN"},
+    {Kind::Info, 3, "RECOMPILER AND RUNTIME"},
+    {Kind::Info, 4, "LIBRARIES"},
+    {Kind::Info, 5, "XBOX REFERENCES"},
     {Kind::Heading, -1, "SUPPORT"},
     {Kind::Link, kDonate, "DONATE"},
     {Kind::Link, kGithub, "GITHUB"},
