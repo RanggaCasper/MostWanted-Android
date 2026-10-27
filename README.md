@@ -11,7 +11,13 @@ The game's x86 code is statically recompiled ahead of time to C++ with [XboxXBE-
 
 ## Gameplay
 
-[Watch the gameplay video on YouTube.](https://www.youtube.com/watch?v=0ILO1_gulrg)
+<p align="center">
+  <a href="https://youtu.be/x5bczwTuyhw">
+    <img src="https://img.youtube.com/vi/0ILO1_gulrg/maxresdefault.jpg" alt="Black Android gameplay on POCO F6" width="720">
+  </a>
+  <br>
+  <sub>▶ Gameplay on Xiaomi Pad 7</sub>
+</p>
 
 ## Installation
 1. Install the APK.
