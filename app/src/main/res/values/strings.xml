@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Most Wanted</string>
+    <string name="port_credit">Port by Rangga Casper</string>
+    <string name="donate">Donate</string>
+    <string name="donate_url" translatable="false">https://sociabuzz.com/racas/tribe</string>
+    <string name="credits">Credits</string>
+    <string name="github" translatable="false">GitHub</string>
+    <string name="youtube" translatable="false">YouTube</string>
+    <string name="github_url" translatable="false">https://github.com/RanggaCasper</string>
+    <string name="youtube_url" translatable="false">https://youtube.com/c/@RanggaCasper</string>
+    <string name="close">Close</string>
+
+    <!-- updates -->
+    <string name="checking_updates">Checking for updates…</string>
+    <string name="update_check_failed">Update check failed</string>
+    <string name="update_unreachable">Couldn\'t reach GitHub. Check your internet connection and try again.</string>
+    <string name="no_update">No update</string>
+    <string name="latest_version">You have the latest version (%1$s).</string>
+    <string name="update_available">Update available</string>
+    <string name="update_is_available">%1$s is available</string>
+    <string name="update_installed">(you have %1$s)</string>
+    <string name="update_whats_new">What\'s new:</string>
+    <string name="update_install_over">Install it over this one: your settings and saves stay.</string>
+    <string name="download">Download</string>
+    <string name="skip_version">Skip this version</string>
+    <string name="later">Later</string>
+
+    <!-- where the game goes -->
+    <string name="storage_access">Storage access</string>
+    <string name="storage_text">Most Wanted reads the game from the MostWanted folder on your phone\'s storage:\n\n%1$s\n\n%2$s</string>
+    <string name="storage_all_files">On the next screen turn on \"Allow access to manage all files\" for Most Wanted, then come back.</string>
+    <string name="storage_permission">Allow Most Wanted to access your storage on the next screen.</string>
+    <string name="allow_access">Allow access</string>
+    <string name="not_now">Not now</string>
+    <string name="game_files">Game files</string>
+    <string name="game_files_text">Copy the game into the MostWanted folder on your phone\'s storage:\n\n%1$s\n\nor into a MostWanted folder at the top of your SD card.\n\nIts disc image (.iso), or default.xbe with its folders. The game starts as soon as they are there.\n\nOr import the disc image from your Downloads, a cloud drive or a USB stick.</string>
+
+    <!-- importing a disc image -->
+    <string name="import_game">Import game</string>
+    <string name="no_file_picker">This phone has no file picker to choose the disc image with.</string>
+    <string name="choose_iso">Choose the game\'s disc image, a file ending in .iso.</string>
+    <string name="not_enough_space">Not enough space</string>
+    <string name="space_needed">The disc image needs %1$.1f GB free, there are %2$.1f GB.</string>
+    <string name="import_starting">Starting…</string>
+    <string name="importing">Importing %1$s</string>
+    <string name="import_progress">%1$.2f of %2$.2f GB</string>
+    <string name="not_xbox_image">%1$s is not an Xbox disc image.</string>
+    <string name="copy_stopped">The copy stopped early.</string>
+    <string name="copy_failed">The copy failed: %1$s</string>
+    <string name="not_in_place">The image could not be put in place.</string>
+    <string name="game_imported">Game imported</string>
+    <string name="game_imported_text">%1$s is in place. The game starts in a moment.</string>
+    <string name="import_failed">Import failed</string>
+</resources>

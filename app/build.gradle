@@ -1,0 +1,93 @@
+plugins {
+    id "com.android.application"
+}
+
+// SDL3 at the version the SDK's Windows build uses: its Java side goes into the APK, its C side into libSDL3.so
+def sdlDir = file("../third_party/SDL")
+def sdlTag = "release-3.4.16"
+tasks.register("fetchSDL") {
+    onlyIf { !new File(sdlDir, "CMakeLists.txt").exists() }
+    doLast {
+        exec {
+            commandLine "git", "clone", "--depth", "1", "--branch", sdlTag, "https://github.com/libsdl-org/SDL.git",
+                        sdlDir.absolutePath
+        }
+    }
+}
+preBuild.dependsOn "fetchSDL"
+
+android {
+    namespace "com.racas.mostwanted"
+    compileSdk 34
+    ndkVersion "28.2.13676358"
+
+    defaultConfig {
+        applicationId "com.racas.mostwanted"
+        minSdk 29
+        targetSdk 34
+        // -PversionCode=<n> -PversionName=<name>: the release workflow sets them from the tag
+        versionCode project.hasProperty("versionCode") ? project.versionCode.toInteger() : 1
+        versionName project.hasProperty("versionName") ? project.versionName : "1.0"
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_STL=c++_shared"
+                // -PxbeGenerated=<dir> -PxbeImage=<file>: recompiled code from somewhere else than generated/game
+                if (project.hasProperty("xbeGenerated")) arguments "-DXBE_GENERATED=${project.xbeGenerated}"
+                if (project.hasProperty("xbeImage")) arguments "-DXBE_IMAGE=${project.xbeImage}"
+                if (project.hasProperty("verboseLog")) arguments "-DXBE_VERBOSE_LOG=ON"
+            }
+        }
+    }
+
+    // the release key from BLACK_KEYSTORE (a .jks path) and its passwords, as the release workflow sets them
+    def keystore = System.getenv("BLACK_KEYSTORE")
+    signingConfigs {
+        if (keystore) {
+            release {
+                storeFile file(keystore)
+                storePassword System.getenv("BLACK_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("BLACK_KEY_ALIAS")
+                keyPassword System.getenv("BLACK_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // without the release key a debug signature, so the release APK installs as it is
+            signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+            // -Pdebuggable: run-as and simpleperf on a device that is not rooted
+            debuggable project.hasProperty("debuggable")
+        }
+        debug {
+            // the recompiled code is far too slow unoptimized
+            externalNativeBuild {
+                cmake {
+                    arguments "-DCMAKE_BUILD_TYPE=Release"
+                }
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "../CMakeLists.txt"
+            version "3.31.6"
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += new File(sdlDir, "android-project/app/src/main/java")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Indonesian (Android's "in" covers id too) -->
+<resources>
+    <string name="port_credit">Port oleh Rangga Casper</string>
+    <string name="donate">Donasi</string>
+    <string name="credits">Kredit</string>
+    <string name="close">Tutup</string>
+
+    <!-- updates -->
+    <string name="checking_updates">Memeriksa pembaruan…</string>
+    <string name="update_check_failed">Gagal memeriksa pembaruan</string>
+    <string name="update_unreachable">Tidak dapat menghubungi GitHub. Periksa koneksi internet lalu coba lagi.</string>
+    <string name="no_update">Tidak ada pembaruan</string>
+    <string name="latest_version">Kamu sudah memakai versi terbaru (%1$s).</string>
+    <string name="update_available">Pembaruan tersedia</string>
+    <string name="update_is_available">%1$s sudah tersedia</string>
+    <string name="update_installed">(versi kamu %1$s)</string>
+    <string name="update_whats_new">Yang baru:</string>
+    <string name="update_install_over">Pasang di atas versi ini: pengaturan dan save kamu tetap ada.</string>
+    <string name="download">Unduh</string>
+    <string name="skip_version">Lewati versi ini</string>
+    <string name="later">Nanti</string>
+
+    <!-- where the game goes -->
+    <string name="storage_access">Akses penyimpanan</string>
+    <string name="storage_text">Most Wanted membaca game dari folder MostWanted di penyimpanan HP kamu:\n\n%1$s\n\n%2$s</string>
+    <string name="storage_all_files">Di layar berikutnya, aktifkan \"Izinkan akses untuk mengelola semua file\" untuk Most Wanted, lalu kembali ke sini.</string>
+    <string name="storage_permission">Di layar berikutnya, izinkan Most Wanted mengakses penyimpanan kamu.</string>
+    <string name="allow_access">Izinkan akses</string>
+    <string name="not_now">Nanti saja</string>
+    <string name="game_files">File game</string>
+    <string name="game_files_text">Salin game ke folder MostWanted di penyimpanan HP kamu:\n\n%1$s\n\natau ke folder MostWanted di bagian paling atas kartu SD.\n\nBisa disc image-nya (.iso), atau default.xbe beserta folder-foldernya. Game langsung dimulai begitu file-nya ada di sana.\n\nAtau impor disc image dari folder Download, cloud drive, atau flashdisk USB.</string>
+
+    <!-- importing a disc image -->
+    <string name="import_game">Impor game</string>
+    <string name="no_file_picker">HP ini tidak punya pemilih file untuk memilih disc image.</string>
+    <string name="choose_iso">Pilih disc image game, yaitu file yang berakhiran .iso.</string>
+    <string name="not_enough_space">Ruang tidak cukup</string>
+    <string name="space_needed">Disc image butuh ruang kosong %1$.1f GB, yang tersedia %2$.1f GB.</string>
+    <string name="import_starting">Memulai…</string>
+    <string name="importing">Mengimpor %1$s</string>
+    <string name="import_progress">%1$.2f dari %2$.2f GB</string>
+    <string name="not_xbox_image">%1$s bukan disc image Xbox.</string>
+    <string name="copy_stopped">Penyalinan berhenti sebelum selesai.</string>
+    <string name="copy_failed">Penyalinan gagal: %1$s</string>
+    <string name="not_in_place">Image tidak bisa dipindahkan ke tempatnya.</string>
+    <string name="game_imported">Game berhasil diimpor</string>
+    <string name="game_imported_text">%1$s sudah siap. Game akan dimulai sebentar lagi.</string>
+    <string name="import_failed">Impor gagal</string>
+</resources>
