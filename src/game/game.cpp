@@ -189,6 +189,17 @@ X86_FUNC(sub_000C1BD0) {
     r = saved[0], g = saved[1], b = saved[2];
 }
 
+// The motion blur: the "Motion Blur" pass (0x0D1440, cdecl: the view, a flag, a mode, an amount; from the "Visual Look
+// Filters" at 0x0D2382) blends the frame with the ones before it by the car's speed, and returns whether it drew; the
+// "Radial Blur Mask Pass" (0x0CE1C0, nitrous and the speedbreaker) follows only then. Slow, it draws nothing and
+// returns false itself (0x0D1661): MOTION BLUR off returns so at once
+X86_EXTERN_FUNC(__imp__sub_000D1440);
+X86_FUNC(sub_000D1440) {
+    if (game::Opt().motion_blur) return __imp__sub_000D1440(ctx, base);
+    ctx.eax &= ~0xFFu;
+    ctx.esp += 4;
+}
+
 X86_EXTERN_FUNC(__imp__sub_00116230);
 X86_FUNC(sub_00116230) {
     game::SkipMovie(ctx, 0);

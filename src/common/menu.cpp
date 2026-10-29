@@ -247,7 +247,7 @@ enum RowId { kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kAudioOutp
              kAntiAliasing, kFpsPosition, kFpsTemps, kStickMode, kBloom, kFog, kDonate, kGithub, kYoutube, kFpsUsage,
              kReflections, kParticles, kRain, kRainDrops, kShadows, kRoadReflections,
              kCheatNos, kCheatSpeedbreaker, kCheatCash, kCheatNoPolice, kCheatUnlockAll,
-             kSkipMovies, kYellowTint };
+             kSkipMovies, kYellowTint, kMotionBlur };
 
 using rows::Kind;
 using rows::Row;
@@ -276,6 +276,7 @@ constexpr Row kGraphicsRows[] = {
     {Kind::Value, kRain, "FALLING RAIN"},
     {Kind::Value, kRainDrops, "SCREEN RAINDROPS"},
     {Kind::Value, kYellowTint, "YELLOW TINT"},
+    {Kind::Value, kMotionBlur, "MOTION BLUR"},
     {Kind::Value, kScreenFilter, "SCREEN FILTER"},
 };
 
@@ -362,6 +363,7 @@ bool* ToggleFlag(Settings& s, int id) {
         case kRain: return &o.rain;
         case kRainDrops: return &o.rain_drops;
         case kYellowTint: return &o.yellow_tint;
+        case kMotionBlur: return &o.motion_blur;
         case kCheatNos: return &o.cheat_nos;
         case kCheatSpeedbreaker: return &o.cheat_speedbreaker;
         case kCheatCash: return &o.cheat_cash;
