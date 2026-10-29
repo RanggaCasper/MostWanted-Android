@@ -390,7 +390,8 @@ namespace {
 using input::NowMs;
 
 // what a finger on the screen does
-enum class Role : uint8_t { None, Stick, Look, Button, Drag, Pinch, FeMouse, Wheel, HudDrag };
+// FeTap: a finger in a menu prompting the right stick, FEng's pointer not given yet: a tap or the stick
+enum class Role : uint8_t { None, Stick, Look, Button, Drag, Pinch, FeMouse, Wheel, HudDrag, FeTap };
 
 // a control of the touch layout: what it shows and presses, on the controller (analog 0-7, button bits from 8) or on
 // the host. Where it sits is the layout's, which the player edits
@@ -625,20 +626,40 @@ constexpr float kTabAspect = 2.3f, kPillAspect = 2.1f, kPedalAspect = 0.6f;
 
 // In a FEng menu the face buttons give way to the menu's own, labelled pills stacked low on the left: ENTER (A) and
 // CLOSE (B) always, for a screen whose accept no tap reaches (no highlighted item, a prompt that is not a mouse
-// region), and X and Y only while the screen shows their prompt, with its label ("DEFAULTS")
+// region), and X, Y and the triggers only while the screen shows their prompt, with its label ("DEFAULTS", the
+// showcase's "ZOOM IN")
+int FePrompt(int press) {
+    if (press >= kAnalogA && press <= kAnalogY) return press;
+    if (press == kAnalogLT) return game::kFePromptLT;
+    if (press == kAnalogRT) return game::kFePromptRT;
+    return -1;
+}
 std::string FeLabel(size_t i) {
     if (i >= kButtonCount) return {};
     const Button& b = kButtons[i];
-    if (!FeMenu() || b.press < kAnalogA || b.press > kAnalogY) return {};
+    int prompt = FePrompt(b.press);
+    if (!FeMenu() || prompt < 0) return {};
     if (b.press == kAnalogA) return app::Ui("ENTER");
     if (b.press == kAnalogB) return app::Ui("CLOSE");
     game::FePrompts p = game::CurrentFePrompts();
-    if (!p.shown[b.press]) return {};
-    return p.label[b.press].empty() ? std::string(b.label) : p.label[b.press];
+    if (!p.shown[prompt]) return {};
+    // the triggers zoom wherever they are prompted (the showcase, the world map): a label that is no action (the
+    // map's L is followed by its zoom, "ZOOM 1.5X", its R by nothing) gives way to ZOOM OUT and ZOOM IN
+    if (prompt == game::kFePromptLT || prompt == game::kFePromptRT) {
+        auto action = [&](int i) {
+            const std::string& l = p.label[i];
+            return !l.empty() && std::none_of(l.begin(), l.end(), [](char c) { return c >= '0' && c <= '9'; });
+        };
+        if (!action(game::kFePromptLT) || !action(game::kFePromptRT))
+            return app::Ui(prompt == game::kFePromptLT ? "ZOOM OUT" : "ZOOM IN");
+    }
+    return p.label[prompt].empty() ? std::string(b.label) : p.label[prompt];
 }
 bool FeFace(size_t i) { return !FeLabel(i).empty(); }
-// their left edges and middles, A at the bottom, then B, Y and X up the side; r their half height
-constexpr Place kFeFaces[] = {{0.03f, 0.90f, 0.04f}, {0.03f, 0.80f, 0.04f}, {0.03f, 0.60f, 0.04f}, {0.03f, 0.70f, 0.04f}};
+// their left edges and middles, by prompt: A at the bottom, then B, Y and X up the side, the triggers above (RT, the
+// showcase's zoom in, on top); r their half height
+constexpr Place kFeFaces[] = {{0.03f, 0.90f, 0.04f}, {0.03f, 0.80f, 0.04f}, {0.03f, 0.60f, 0.04f},
+                              {0.03f, 0.70f, 0.04f}, {0.03f, 0.50f, 0.04f}, {0.03f, 0.40f, 0.04f}};
 constexpr float kFeTextSize = 0.8f;  // the label's height over the pill's half height
 // a pill's half width: its label's (ImGui's default font is monospaced, 7 of 13 pixels a letter) and some
 float FeHalfWidth(const std::string& label, float hh) {
@@ -708,7 +729,9 @@ void DrawArt(ImDrawList* dl, const Art& a, ImVec2 c, float hh, ImU32 tint, float
 }
 
 // a control's place: its layout's, or the FEng menus' own for a face button
-const Place& PlaceOf(size_t i) { return i < kButtonCount && FeFace(i) ? kFeFaces[kButtons[i].press] : g_layout[i]; }
+const Place& PlaceOf(size_t i) {
+    return i < kButtonCount && FeFace(i) ? kFeFaces[FePrompt(kButtons[i].press)] : g_layout[i];
+}
 
 void Centre(size_t i, float& cx, float& cy) {
     cx = PlaceOf(i).x * Width();
@@ -1085,6 +1108,8 @@ void FingerDown(SDL_FingerID id, float x, float y) {
                 app::ToggleMenu();
             }
         }
+    } else if (FeMenu() && game::CurrentFePrompts().right_stick) {
+        f.role = Role::FeTap;  // FEng's pointer would click whatever the drag began on (the map's GPS)
     } else if (FeMenu()) {
         f.role = Role::FeMouse;
         FePointer(f, true);
@@ -1128,8 +1153,11 @@ void FingerMove(SDL_FingerID id, float x, float y) {
             }
         }
         if (f.role == Role::Stick) UpdateStick(f);
-        if (f.role == Role::Look) StickOf(f, g_rstick_x, g_rstick_y, kRStick);
+        // a menu prompting the right stick (the showcase turning the car, the map's cursor): a drag past a tap's reach
+        // is the stick from where it came down
+        if (f.role == Role::FeTap && std::hypot(f.x - f.x0, f.y - f.y0) >= kSwipe * Height()) f.role = Role::Look;
         if (f.role == Role::FeMouse) FePointer(f, true);
+        if (f.role == Role::Look) StickOf(f, g_rstick_x, g_rstick_y, kRStick);
         if (f.role == Role::Wheel) TurnWheel(f);
         break;
     }
@@ -1140,6 +1168,10 @@ void FingerUp(SDL_FingerID id) {
         if (f.id == id && f.role == Role::Wheel) g_wheel_held = false;
     for (const Finger& f : g_fingers)
         if (f.id == id && f.role == Role::FeMouse) {
+            FePointer(f, false);
+            FeSwipe(f);
+        } else if (f.id == id && f.role == Role::FeTap) {  // a tap after all: FEng's pointer pressed there and let go
+            FePointer(f, true);
             FePointer(f, false);
             FeSwipe(f);
         }

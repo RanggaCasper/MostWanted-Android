@@ -122,7 +122,10 @@ constexpr uint32_t kPackageObjects = 0x4C;
 constexpr uint32_t kObjectNext = 0x4, kObjectType = 0x18, kObjectHidden = 1, kImageTexture = 0x24, kStringText = 0x64;
 constexpr uint32_t kGroupCount = 0x60, kGroupObjects = 0x64;
 constexpr uint32_t kTypeImage = 1, kTypeString = 2, kTypeGroup = 5;
-constexpr uint32_t kPromptTextures[] = {0x02959349, 0x6851AAF5, 0x7A8B6BD0, 0x54A68051};  // A, B, X, Y
+// the prompts' textures, named for the PS2's buttons: A CROSS, B TRIANGLE, X SQUARE, Y CIRCLE, the triggers L1 and R1;
+// the right stick RIGHT_ANALOG
+constexpr uint32_t kPromptTextures[] = {0x02959349, 0x6851AAF5, 0x7A8B6BD0, 0x54A68051, 0x000005BC, 0x00000682};
+constexpr uint32_t kRightStickTexture = 0xFBB0B78E;
 constexpr int kMaxObjects = 600;
 
 uint32_t Peek(uint32_t va) { return va && mem::IsCommitted(va) && mem::IsCommitted(va + 3) ? kernel::R32(va) : 0; }
@@ -146,8 +149,13 @@ void ScanPrompts(uint32_t first, int count, FePrompts& out, int& budget) {
         if (type == kTypeGroup) {
             ScanPrompts(Peek(o + kGroupObjects), int(Peek(o + kGroupCount)), out, budget);
         } else if (type == kTypeImage) {
-            for (int i = 0; i < 4; i++)
-                if (Peek(o + kImageTexture) == kPromptTextures[i]) {
+            uint32_t texture = Peek(o + kImageTexture);
+            if (texture == kRightStickTexture) {
+                out.right_stick = true;
+                pending = -1;
+            }
+            for (int i = 0; i < kFePromptCount; i++)
+                if (texture == kPromptTextures[i]) {
                     out.shown[i] = true;
                     pending = i;
                 }

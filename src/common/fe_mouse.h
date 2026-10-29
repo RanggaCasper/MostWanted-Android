@@ -8,10 +8,13 @@ void FeFrame();             // game thread, at each present
 bool FeMenuShown();         // any thread: a menu that takes the pointer is up
 bool FeMouseDown();         // game thread: FEng's mouse button down this update
 bool FeFinger(float& x, float& y);  // any thread: the finger in FEng's screen, true while it is down
-// the menu's button prompts lately, for A, B, X and Y: shown, and its label in capitals ("DEFAULTS")
+// the menu's button prompts lately, for A, B, X, Y and the triggers (L and R, the showcase's zoom): shown, and its
+// label in capitals ("DEFAULTS"); and whether it prompts the right stick (the showcase's ROTATE, the map's cursor)
+constexpr int kFePromptLT = 4, kFePromptRT = 5, kFePromptCount = 6;
 struct FePrompts {
-    bool shown[4] = {};
-    std::string label[4];
+    bool shown[kFePromptCount] = {};
+    std::string label[kFePromptCount];
+    bool right_stick = false;
 };
 FePrompts CurrentFePrompts();  // any thread
 void FeTouch(bool down, float u, float v);  // any thread: the finger in shares of the frame, down or lifted

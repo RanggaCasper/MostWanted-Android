@@ -84,6 +84,8 @@ constexpr Entry kEntries[] = {
     {"CONTROLS SIZE", {{}, {}, {}, {}, u"Ukuran kontrol"}},
     {"SPEEDOMETER", {u"Compteur de vitesse", u"Tachometer", u"Tachimetro", u"Velocímetro", u"Spidometer"}},
     {"MINIMAP", {u"Mini-carte", u"Minikarte", u"Minimappa", u"Minimapa", u"Peta mini"}},
+    {"ZOOM IN", {u"Zoom avant", u"Vergrößern", u"Ingrandisci", u"Acercar", u"Perbesar"}},
+    {"ZOOM OUT", {u"Zoom arrière", u"Verkleinern", u"Riduci", u"Alejar", u"Perkecil"}},
     {"RACE INFO", {u"Infos de course", u"Renninfo", u"Info gara", u"Info de carrera", u"Info balapan"}},
     {"EDIT CONTROLS POSITION", {{}, {}, {}, {}, u"Ubah posisi kontrol"}},
     {"STEERING", {{}, {}, {}, {}, u"Kemudi"}},
