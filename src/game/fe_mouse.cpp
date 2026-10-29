@@ -10,6 +10,7 @@
 // those screens accept on the pad's A alone, is told to the touch controls to press A (FeTakeAccept).
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -83,6 +84,9 @@ bool OnCurrentButton(X86Context& ctx) {
     return hit != 0;
 }
 
+bool KeyboardPackage(uint32_t p);
+uint32_t PickKey(X86Context& ctx, uint32_t p);
+
 // FEngine::Update's GetMouseInfo(FEMouseInfo&), thiscall: x, y, wheel and the buttons, int16 each. A press shows down
 // for two updates at least, for the press and then the click on its release; then the pointer stays a few updates
 // and leaves, so a resting pointer neither keeps an item hovered nor fights the pad
@@ -98,7 +102,8 @@ void GetMouseInfo(X86Context& ctx, uint8_t*) {
         hold = kHoldUpdates;
         uint32_t p = g_package;
         if (!g_tap_anywhere) {  // FeTouch took that one
-            g_accept_button = OnCurrentButton(ctx) ? kernel::R32(p + kCurrentButton) : 0;
+            if (p && KeyboardPackage(p)) g_accept_button = PickKey(ctx, p);
+            else g_accept_button = OnCurrentButton(ctx) ? kernel::R32(p + kCurrentButton) : 0;
             g_accept_package = p;
         }
     }
@@ -127,6 +132,71 @@ constexpr uint32_t kTypeImage = 1, kTypeString = 2, kTypeGroup = 5;
 constexpr uint32_t kPromptTextures[] = {0x02959349, 0x6851AAF5, 0x7A8B6BD0, 0x54A68051, 0x000005BC, 0x00000682};
 constexpr uint32_t kRightStickTexture = 0xFBB0B78E;
 constexpr int kMaxObjects = 600;
+constexpr uint32_t kPackageName = 0xC;
+uint32_t Peek(uint32_t va);
+
+// The game's keyboard (Keyboard.fng, a profile's name): a grid of 15 columns of buttons (flag kButtonObject), the
+// letters' and digits' and under them the cells of Space, Lowercase, Backspace and Done; the dpad moves the package's
+// current button and A presses it. A tap on a key makes it the current button (FEPackage::SetCurrentButton, thiscall,
+// the object and whether to send the highlight messages), then is a tap on the highlighted button, accepted as A
+constexpr uint32_t kButtonObject = 1u << 28;
+constexpr uint32_t kSetCurrentButton = 0x15CB30;
+constexpr int kMaxKeys = 2000;  // the package's objects, both of its pages
+
+bool KeyboardPackage(uint32_t p) {
+    uint32_t name = Peek(p + kPackageName);
+    char head[8] = {};
+    for (uint32_t i = 0; name && i < 8 && mem::IsCommitted(name + i); i++) head[i] = char(kernel::G<uint8_t>(name + i));
+    return std::memcmp(head, "Keyboard", 8) == 0;
+}
+
+// The keys are in groups, which FEngTestForIntersection leaves out (it tests an object's own place, in its group's
+// units): a key is tested as drawn, by its cached render object's (+0x58) transform in the front end's 640x480 (its
+// size at +0x30 and +0x44, its middle at +0x60 and +0x64). That 640x480 is drawn into the middle 90% of FEng's
+// screen across and 93.75% down (576x450, measured off the frame: the keys' places against where they show)
+constexpr uint32_t kRenderObject = 0x58;
+constexpr uint32_t kRenderWidth = 0x30, kRenderHeight = 0x44, kRenderX = 0x60, kRenderY = 0x64;
+constexpr float kSafeAcross = 0.9f, kSafeDown = 0.9375f;
+
+float PeekFloat(uint32_t va) {
+    uint32_t b = Peek(va);
+    float f;
+    std::memcpy(&f, &b, 4);
+    return f;
+}
+
+// the shown button under a point of the front end's 640x480, 0 for none; a hidden group's are not shown
+uint32_t KeyAt(float x, float y, uint32_t first, int count, int& budget) {
+    for (uint32_t o = first; o && budget-- > 0 && count != 0; o = Peek(o + kObjectNext), count--) {
+        uint32_t flags = Peek(o + kObjectFlags);
+        if (flags & kObjectHidden) continue;
+        if (Peek(o + kObjectType) == kTypeGroup) {
+            if (uint32_t key = KeyAt(x, y, Peek(o + kGroupObjects), int(Peek(o + kGroupCount)), budget)) return key;
+            continue;
+        }
+        uint32_t r = (flags & kButtonObject) ? Peek(o + kRenderObject) : 0;
+        if (r && std::fabs(x - PeekFloat(r + kRenderX)) * 2 <= std::fabs(PeekFloat(r + kRenderWidth)) &&
+            std::fabs(y - PeekFloat(r + kRenderY)) * 2 <= std::fabs(PeekFloat(r + kRenderHeight)))
+            return o;
+    }
+    return 0;
+}
+
+// the key under the finger made the current button, 0 for none
+uint32_t PickKey(X86Context& ctx, uint32_t p) {
+    int budget = kMaxKeys;
+    // FEng's screen to the front end's 640x480: 480 times the aspect wide with the widescreen flag, else the 640
+    // stretched across the frame (FeTouch)
+    float aspect = Aspect(), across = aspect >= 1.5f ? 1.0f : 480.0f * aspect / 640.0f;
+    float x = float(g_x) / (kSafeAcross * across) + 320.0f, y = float(g_y) / kSafeDown + 240.0f;
+    uint32_t key = KeyAt(x, y, Peek(p + kPackageObjects), -1, budget);
+    if (!key || key == kernel::R32(p + kCurrentButton)) return key;
+    uint32_t ecx = ctx.ecx;
+    ctx.ecx = p;
+    kernel::CallGuest(ctx, kSetCurrentButton, {key, 1});
+    ctx.ecx = ecx;
+    return key;
+}
 
 uint32_t Peek(uint32_t va) { return va && mem::IsCommitted(va) && mem::IsCommitted(va + 3) ? kernel::R32(va) : 0; }
 
@@ -209,13 +279,19 @@ void FeFrame() {
     if (g_down) frames = kMouseFrames;
     else if (frames > 0) frames--;
     g_mouse_frames = frames;
-    kernel::G<uint8_t>(fe + kMouseActive) = menu != 0 && frames > 0;
+    // the keyboard has no mouse regions but its keys are tapped, through GetMouseInfo (PickKey)
+    bool keyboard = !menu && prompted && KeyboardPackage(prompted);
+    kernel::G<uint8_t>(fe + kMouseActive) = (menu != 0 || keyboard) && frames > 0;
     if (menu) {
         int budget = kMaxObjects;
         ScanPrompts(Peek(menu + kPackageObjects), -1, prompts, budget);
     } else if (prompted) {
         menu = prompted;
         prompts = found;
+    }
+    if (menu && KeyboardPackage(menu)) {
+        for (int i = 2; i < kFePromptCount; i++) prompts.shown[i] = false;  // A and B stay, ENTER and CLOSE
+        prompts.right_stick = false;
     }
     g_package = menu;
     g_menu = menu != 0;
