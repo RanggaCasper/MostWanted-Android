@@ -1117,6 +1117,8 @@ private:
     VkShaderModule Module(const std::string& src, const char* entry, vkshader::Stage stage, uint64_t& hash);
     VkPipeline FullScreenPipeline(const char* hlsl, const char* ps_entry, VkFormat color, VkFormat depth, bool over);
     VkPipeline EnsurePipeline(const PsoKey& k, VkShaderModule vs, VkShaderModule ps);
+    VkPipeline BuildPipeline(const PsoKey& k, VkShaderModule vs, VkShaderModule ps, VkRenderPass pass);
+    VkRenderPass PipelinePass(const PsoKey& k);
     VkSampler Sampler(const VkSamplerCreateInfo& ci);
     VkSampler StageSampler(const State& s, int i, const DrawTextures& stages, bool clamp);
 
@@ -1159,6 +1161,13 @@ private:
     void ReleaseOldTextures();
     void ApplySettings();
     void SavePipelineCache();
+    // SHADER PRELOADING
+    void LoadPreloadList();
+    void StartPreload();
+    void Preload(std::vector<std::pair<uint64_t, uint64_t>> shaders, std::vector<PsoKey> pipes,
+                 std::unordered_map<uint64_t, VkRenderPass> passes);
+    bool TakePreloadedShader(uint64_t key, uint64_t& hash, VkShaderModule& module);
+    void Record(uint32_t tag, const void* data, size_t size);
 
     VkInstance instance_ = VK_NULL_HANDLE;
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
@@ -1213,6 +1222,20 @@ private:
     VkPipelineLayout layout_ = VK_NULL_HANDLE;
     VkPipelineCache cache_ = VK_NULL_HANDLE;
     size_t cache_saved_ = 0;
+    // Shader preloading: the shaders (their key to their source's hash) and pipelines (their keys) drawn with in earlier
+    // runs, listed in shadercache/preload.bin as they are first made. With SHADER PRELOADING on, a thread of its own
+    // makes them all from the cached SPIR-V once the game starts, and the render thread takes them as it meets them
+    // instead of making them mid-race (what stutters). The list is kept whether it is on or not
+    std::vector<std::pair<uint64_t, uint64_t>> listed_shaders_;
+    std::vector<PsoKey> listed_pipes_;
+    std::unordered_set<uint64_t> listed_;  // the shaders' keys and the pipelines' hashes in the list
+    std::ofstream list_;
+    bool preload_started_ = false;
+    std::mutex pre_lock_;  // the preload thread's, below
+    std::unordered_map<uint64_t, uint64_t> pre_shaders_;  // a shader's key to its source's hash, its module made
+    std::unordered_map<uint64_t, VkShaderModule> pre_modules_;
+    std::unordered_map<uint64_t, VkPipeline> pre_pipes_;
+    std::unordered_set<uint64_t> pre_claimed_;  // pipelines the render thread made itself first
     VkSemaphore timeline_ = VK_NULL_HANDLE;
     std::atomic<uint64_t> value_{0};
     Frame frames_[kFrames];
@@ -1643,6 +1666,7 @@ bool VulkanBackend::CreateLayouts() {
         VK_CHECK(vkCreatePipelineCache(dev_, &ci, nullptr, &cache_));
     }
     cache_saved_ = blob.size();
+    LoadPreloadList();
     return true;
 }
 
@@ -2436,9 +2460,37 @@ VkPipeline VulkanBackend::FullScreenPipeline(const char* hlsl, const char* ps_en
     return pipe;
 }
 
+// shadercache/preload.bin: its header, then records, each a tag and what it lists
+constexpr uint32_t kListMagic = 0x4C50574D;  // "MWPL"
+constexpr uint32_t kListVersion = 1;
+constexpr uint32_t kListShader = 1, kListPipeline = 2;  // a record's tag: a shader's key and hash, a PsoKey
+
 VkPipeline VulkanBackend::EnsurePipeline(const PsoKey& k, VkShaderModule vs, VkShaderModule ps) {
     uint64_t h = Hash(&k, sizeof(k));
     if (auto it = pipelines_.find(h); it != pipelines_.end()) return it->second;
+    {
+        std::lock_guard lock(pre_lock_);
+        if (auto it = pre_pipes_.find(h); it != pre_pipes_.end()) return pipelines_[h] = it->second;
+        pre_claimed_.insert(h);
+    }
+    auto t = std::chrono::steady_clock::now();
+    VkPipeline pipe = BuildPipeline(k, vs, ps, PipelinePass(k));
+    if (!pipe) LOGE("vulkan: pipeline creation failed");
+    g_perf.pipe_ns += SinceNs(t);
+    g_perf.pipes++;
+    pipelines_[h] = pipe;
+    if (pipe && listed_.insert(h).second) Record(kListPipeline, &k, sizeof(k));
+    return pipe;
+}
+
+// the render pass a pipeline is made for, with render passes; none with dynamic rendering. Render thread
+VkRenderPass VulkanBackend::PipelinePass(const PsoKey& k) {
+    if (dynamic_) return VK_NULL_HANDLE;
+    return Pass(k.has_rt ? VkFormat(k.rtfmt) : VK_FORMAT_UNDEFINED, k.has_ds ? depth_fmt_ : VK_FORMAT_UNDEFINED);
+}
+
+// a pipeline as its key says: what it reads is set at Init, so the preload thread makes them too
+VkPipeline VulkanBackend::BuildPipeline(const PsoKey& k, VkShaderModule vs, VkShaderModule ps, VkRenderPass pass) {
     VkPipelineShaderStageCreateInfo st[2] = {{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO},
                                              {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO}};
     st[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -2512,7 +2564,7 @@ VkPipeline VulkanBackend::EnsurePipeline(const PsoKey& k, VkShaderModule vs, VkS
     rinfo.depthAttachmentFormat = k.has_ds ? depth_fmt_ : VK_FORMAT_UNDEFINED;
     rinfo.stencilAttachmentFormat = k.has_ds && HasStencil(depth_fmt_) ? depth_fmt_ : VK_FORMAT_UNDEFINED;
     VkGraphicsPipelineCreateInfo pi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, dynamic_ ? &rinfo : nullptr};
-    if (!dynamic_) pi.renderPass = Pass(k.has_rt ? color : VK_FORMAT_UNDEFINED, k.has_ds ? depth_fmt_ : VK_FORMAT_UNDEFINED);
+    if (!dynamic_) pi.renderPass = pass;
     pi.stageCount = 2;
     pi.pStages = st;
     pi.pVertexInputState = &vi;
@@ -2525,15 +2577,136 @@ VkPipeline VulkanBackend::EnsurePipeline(const PsoKey& k, VkShaderModule vs, VkS
     pi.pDynamicState = &dy;
     pi.layout = layout_;
     VkPipeline pipe = VK_NULL_HANDLE;
-    auto t = std::chrono::steady_clock::now();
-    if (vkCreateGraphicsPipelines(dev_, cache_, 1, &pi, nullptr, &pipe) != VK_SUCCESS) {
-        LOGE("vulkan: pipeline creation failed");
-        pipe = VK_NULL_HANDLE;
-    }
-    g_perf.pipe_ns += SinceNs(t);
-    g_perf.pipes++;
-    pipelines_[h] = pipe;
+    if (vkCreateGraphicsPipelines(dev_, cache_, 1, &pi, nullptr, &pipe) != VK_SUCCESS) pipe = VK_NULL_HANDLE;
     return pipe;
+}
+
+// ---- Shader preloading
+
+std::filesystem::path PreloadListPath() { return app::ExeDir() / "shadercache" / "preload.bin"; }
+
+// the list as earlier runs left it, then open to add to; one of another version or key size is started again
+void VulkanBackend::LoadPreloadList() {
+    const uint32_t header[4] = {kListMagic, kListVersion, uint32_t(sizeof(PsoKey)), 0};
+    std::filesystem::path p = PreloadListPath();
+    bool fresh = true;
+    if (std::ifstream f{p, std::ios::binary}) {
+        uint32_t h[4] = {};
+        if (f.read(reinterpret_cast<char*>(h), sizeof(h)) && !std::memcmp(h, header, sizeof(h))) {
+            fresh = false;
+            uint32_t tag;
+            while (f.read(reinterpret_cast<char*>(&tag), 4)) {
+                if (tag == kListShader) {
+                    uint64_t rec[2];
+                    if (!f.read(reinterpret_cast<char*>(rec), sizeof(rec))) break;
+                    if (listed_.insert(rec[0]).second) listed_shaders_.emplace_back(rec[0], rec[1]);
+                } else if (tag == kListPipeline) {
+                    PsoKey k;
+                    if (!f.read(reinterpret_cast<char*>(&k), sizeof(k))) break;
+                    if (listed_.insert(Hash(&k, sizeof(k))).second) listed_pipes_.push_back(k);
+                } else {
+                    break;  // a record cut short by the app's end: the rest is written again as it is met
+                }
+            }
+        }
+    }
+    if (fresh) {
+        std::error_code ec;
+        std::filesystem::create_directories(p.parent_path(), ec);
+        list_.open(p, std::ios::binary | std::ios::trunc);
+        list_.write(reinterpret_cast<const char*>(header), sizeof(header));
+    } else {
+        list_.open(p, std::ios::binary | std::ios::app);
+    }
+    list_.flush();
+    LOGR("vulkan: %zu shaders and %zu pipelines listed for preloading", listed_shaders_.size(), listed_pipes_.size());
+}
+
+// a shader or pipeline made for the first time, added to the list; written at once, as the app may be killed
+void VulkanBackend::Record(uint32_t tag, const void* data, size_t size) {
+    if (!list_) return;
+    list_.write(reinterpret_cast<const char*>(&tag), 4);
+    list_.write(static_cast<const char*>(data), std::streamsize(size));
+    list_.flush();
+}
+
+// the preload thread's module for a shader's key, now the render thread's
+bool VulkanBackend::TakePreloadedShader(uint64_t key, uint64_t& hash, VkShaderModule& module) {
+    std::lock_guard lock(pre_lock_);
+    auto it = pre_shaders_.find(key);
+    if (it == pre_shaders_.end()) return false;
+    hash = it->second;
+    VkShaderModule& m = modules_[hash];
+    if (!m) m = pre_modules_[hash];
+    module = m;
+    return module != VK_NULL_HANDLE;
+}
+
+// render thread, once SHADER PRELOADING is on: the render passes the listed pipelines need, made here as Pass is the
+// render thread's, then the thread that makes the rest
+void VulkanBackend::StartPreload() {
+    preload_started_ = true;
+    if (listed_shaders_.empty() && listed_pipes_.empty()) return;
+    std::unordered_map<uint64_t, VkRenderPass> passes;
+    for (const PsoKey& k : listed_pipes_) {
+        uint64_t key = uint64_t(k.has_rt ? k.rtfmt : 0) << 1 | (k.has_ds ? 1 : 0);
+        if (!passes.count(key)) passes[key] = PipelinePass(k);
+    }
+    std::thread([this, shaders = listed_shaders_, pipes = listed_pipes_, passes = std::move(passes)]() mutable {
+        Preload(std::move(shaders), std::move(pipes), std::move(passes));
+    }).detach();
+    listed_shaders_.clear();
+    listed_pipes_.clear();
+}
+
+// the preload thread: the shaders' modules from the cached SPIR-V, then the pipelines; one the render thread made
+// first is skipped, and one it makes meanwhile wins over this thread's
+void VulkanBackend::Preload(std::vector<std::pair<uint64_t, uint64_t>> shaders, std::vector<PsoKey> pipes,
+                            std::unordered_map<uint64_t, VkRenderPass> passes) {
+    auto t = std::chrono::steady_clock::now();
+    std::unordered_map<uint64_t, VkShaderModule> modules;
+    auto module = [&](uint64_t hash) {
+        if (auto it = modules.find(hash); it != modules.end()) return it->second;
+        std::vector<uint32_t> spirv;
+        VkShaderModule m = VK_NULL_HANDLE;
+        if (vkshader::Cached(hash, spirv)) {
+            VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+            ci.codeSize = spirv.size() * 4;
+            ci.pCode = spirv.data();
+            if (vkCreateShaderModule(dev_, &ci, nullptr, &m) != VK_SUCCESS) m = VK_NULL_HANDLE;
+        }
+        return modules[hash] = m;
+    };
+    size_t made_shaders = 0, made_pipes = 0;
+    for (const auto& [key, hash] : shaders) {
+        VkShaderModule m = module(hash);
+        if (!m) continue;
+        std::lock_guard lock(pre_lock_);
+        pre_modules_.emplace(hash, m);
+        pre_shaders_.emplace(key, hash);
+        made_shaders++;
+    }
+    for (const PsoKey& k : pipes) {
+        uint64_t h = Hash(&k, sizeof(k));
+        {
+            std::lock_guard lock(pre_lock_);
+            if (pre_claimed_.count(h)) continue;
+        }
+        VkShaderModule vs = module(k.vs), ps = module(k.ps);
+        if (!vs || !ps) continue;
+        uint64_t pass = uint64_t(k.has_rt ? k.rtfmt : 0) << 1 | (k.has_ds ? 1 : 0);
+        VkPipeline pipe = BuildPipeline(k, vs, ps, passes[pass]);
+        if (!pipe) continue;
+        std::lock_guard lock(pre_lock_);
+        if (pre_claimed_.count(h)) {
+            vkDestroyPipeline(dev_, pipe, nullptr);
+            continue;
+        }
+        pre_pipes_[h] = pipe;
+        made_pipes++;
+    }
+    LOGR("vulkan: preloaded %zu shaders and %zu pipelines in %.1f s", made_shaders, made_pipes,
+         double(SinceNs(t)) / 1e9);
 }
 
 VkSampler VulkanBackend::Sampler(const VkSamplerCreateInfo& ci) {
@@ -2832,6 +3005,10 @@ void VulkanBackend::EnsureVertexShader(const State& s, const Assembled& a, DrawS
         sh.vs = modules_[sh.vh];
         return;
     }
+    if (TakePreloadedShader(sh.vkey, sh.vh, sh.vs)) {
+        shader_src_[sh.vkey] = sh.vh;
+        return;
+    }
     std::string src = VertexHlsl(s, a, sh);
     const char* entry = "main";
     if (a.topology == Topology::Points) {
@@ -2843,6 +3020,10 @@ void VulkanBackend::EnsureVertexShader(const State& s, const Assembled& a, DrawS
     }
     sh.vs = Module(src, entry, vkshader::Stage::Vertex, sh.vh);
     shader_src_[sh.vkey] = sh.vh;
+    if (sh.vs && listed_.insert(sh.vkey).second) {
+        const uint64_t rec[2] = {sh.vkey, sh.vh};
+        Record(kListShader, rec, sizeof(rec));
+    }
 }
 
 void VulkanBackend::EnsurePixelShader(const PixelKey& pk, DrawShaders& sh) {
@@ -2851,8 +3032,17 @@ void VulkanBackend::EnsurePixelShader(const PixelKey& pk, DrawShaders& sh) {
         sh.ps = modules_[sh.ph];
         return;
     }
+    uint64_t key = sh.pkey ^ kPixelKeySalt;
+    if (TakePreloadedShader(key, sh.ph, sh.ps)) {
+        shader_src_[key] = sh.ph;
+        return;
+    }
     sh.ps = Module(PixelHlsl(pk), "main", vkshader::Stage::Pixel, sh.ph);
-    shader_src_[sh.pkey ^ kPixelKeySalt] = sh.ph;
+    shader_src_[key] = sh.ph;
+    if (sh.ps && listed_.insert(key).second) {
+        const uint64_t rec[2] = {key, sh.ph};
+        Record(kListShader, rec, sizeof(rec));
+    }
 }
 
 constexpr float kUpscaledMin = 1.01f;
@@ -3804,6 +3994,7 @@ void VulkanBackend::Present(const Surface& front) {
         gpu_ns_ = 0;
     }
     if (presents_ % 600 == 0) SavePipelineCache();
+    if (!preload_started_ && game::Opt().shader_preload) StartPreload();
     ApplySettings();
 }
 

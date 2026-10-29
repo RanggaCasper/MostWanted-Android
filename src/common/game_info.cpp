@@ -96,6 +96,7 @@ const app::GameInfo app::kGame = {
                 {"rain_drops", &game::Opt().rain_drops, nullptr},
                 {"yellow_tint", &game::Opt().yellow_tint, nullptr},
                 {"motion_blur", &game::Opt().motion_blur, nullptr},
+                {"shader_preload", &game::Opt().shader_preload, nullptr},
                 {"cheat_nos", &game::Opt().cheat_nos, nullptr},
                 {"cheat_speedbreaker", &game::Opt().cheat_speedbreaker, nullptr},
                 {"cheat_cash", &game::Opt().cheat_cash, nullptr},

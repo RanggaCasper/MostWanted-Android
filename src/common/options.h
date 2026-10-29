@@ -38,6 +38,7 @@ struct Options {
     bool rain = true;         // the falling rain, src/game/game.cpp
     bool rain_drops = true;   // the drops on the screen in the rain, the same
     bool yellow_tint = false;  // the game's yellow colour grading, src/game/game.cpp greys it when off
+    bool shader_preload = false;  // native/vulkan.cpp makes earlier runs' shaders and pipelines at the start
     bool motion_blur = true;   // the blur by speed and the nitrous' radial blur, src/game/game.cpp skips them when off
     // cheats, src/game/game.cpp's ApplyCheats
     bool cheat_nos = false;           // the nitrous never runs out

@@ -19,5 +19,7 @@ enum class Stage { Vertex, Pixel };
 void Init(const std::filesystem::path& cache_dir);
 // the SPIR-V of hlsl's entry point, named "main" in the module; false after logging why
 bool Compile(const std::string& hlsl, const char* entry, Stage stage, uint64_t hash, std::vector<uint32_t>& spirv);
+// the SPIR-V cached for a source's hash by an earlier Compile; false when there is none
+bool Cached(uint64_t hash, std::vector<uint32_t>& spirv);
 
 }  // namespace vkshader
