@@ -47,6 +47,7 @@ constexpr Entry kEntries[] = {
     {"PARTICLE EFFECTS", {u"Effets de particules", u"Partikeleffekte", u"Effetti particellari", u"Efectos de partículas", u"Efek partikel"}},
     {"FALLING RAIN", {u"Pluie", u"Regen", u"Pioggia", u"Lluvia", u"Hujan turun"}},
     {"SCREEN RAINDROPS", {u"Gouttes de pluie à l'écran", u"Regentropfen auf dem Bildschirm", u"Gocce di pioggia sullo schermo", u"Gotas de lluvia en pantalla", u"Tetes hujan di layar"}},
+    {"YELLOW TINT", {u"Teinte jaune", u"Gelbstich", u"Tinta gialla", u"Tinte amarillo", u"Filter kuning"}},
     {"BLOOM", {u"Flou lumineux", u"Bloom", u"Bloom", u"Resplandor", u"Bloom"}},
     {"ASPECT RATIO", {{}, {}, {}, {}, u"Rasio aspek"}},
     {"FULL SCREEN", {{}, {}, {}, {}, u"Layar penuh"}},

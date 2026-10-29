@@ -94,6 +94,7 @@ const app::GameInfo app::kGame = {
                 {"road_reflections", &game::Opt().road_reflections, nullptr},
                 {"rain", &game::Opt().rain, nullptr},
                 {"rain_drops", &game::Opt().rain_drops, nullptr},
+                {"yellow_tint", &game::Opt().yellow_tint, nullptr},
                 {"cheat_nos", &game::Opt().cheat_nos, nullptr},
                 {"cheat_speedbreaker", &game::Opt().cheat_speedbreaker, nullptr},
                 {"cheat_cash", &game::Opt().cheat_cash, nullptr},

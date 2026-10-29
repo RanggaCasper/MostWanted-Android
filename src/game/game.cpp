@@ -172,6 +172,23 @@ X86_FUNC(sub_002527A0) {
     ctx.esp += 4;
 }
 
+// The yellow look: the "Visual Look Pass" (0x0CDA40, pixel shader 0x17) adds the scene times a tint (texture 3) over
+// the desaturated scene. 0x0C1BD0 fills that tint's 256x1 ramp ([this + 0x234]) from a curve (+0x50) times the colour
+// at +0xA0/+0xA4/+0xA8 (R, G, B), the visual treatment's, blended by the game through the day. YELLOW TINT off makes
+// the ramp grey of the colour's luma while it is built, and gives the game its colour back
+X86_EXTERN_FUNC(__imp__sub_000C1BD0);
+X86_FUNC(sub_000C1BD0) {
+    if (game::Opt().yellow_tint) return __imp__sub_000C1BD0(ctx, base);
+    uint32_t tint = ctx.ecx + 0xA0;
+    float& r = kernel::G<float>(tint);
+    float& g = kernel::G<float>(tint + 4);
+    float& b = kernel::G<float>(tint + 8);
+    float saved[] = {r, g, b};
+    r = g = b = 0.299f * saved[0] + 0.587f * saved[1] + 0.114f * saved[2];
+    __imp__sub_000C1BD0(ctx, base);
+    r = saved[0], g = saved[1], b = saved[2];
+}
+
 X86_EXTERN_FUNC(__imp__sub_00116230);
 X86_FUNC(sub_00116230) {
     game::SkipMovie(ctx, 0);
