@@ -13,6 +13,8 @@ struct Pad;
 // the host side: window, settings
 namespace app {
 
+inline constexpr int kSettingsVersion = 4;
+
 enum class DisplayMode : uint32_t { Fullscreen, Borderless, Windowed };
 
 struct Settings {

@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.BatteryManager;
@@ -45,6 +46,13 @@ public class MostWantedActivity extends SDLActivity {
     private final GameImporter importer = new GameImporter(this);
     private boolean importing;  // the file picker or the copy is up: nothing else is asked meanwhile
     private boolean checking;   // a check asked from the menu is under way
+
+    // SDL may request an orientation from its window hint. Keep this game in sensor-driven landscape,
+    // allowing either horizontal side while rejecting portrait requests.
+    @Override
+    public void setOrientationBis(int w, int h, boolean resizable, String hint) {
+        if (w > 1 && h > 1) setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
 
     @Override
     protected String[] getLibraries() {
