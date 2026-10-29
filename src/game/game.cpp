@@ -13,8 +13,9 @@
 namespace game {
 
 // The console's widescreen flag (XGetVideoFlags at boot, 0x0D0202, kept at 0x48099C; set from 3:2 on, native/main.cpp)
-// gives the cameras (0x0D4888, 0x0D8330) a frame 853 wide (480 * 16 / 9, at 0x427C00) for a 4:3 one's 640. It is the
-// frame's own shape here, so 19.5:9 is not 16:9 stretched
+// gives the front end's and HUD's screen transform (0x0D4888, 0x0D8330: 576 / width across, 448 / 480 down) a frame
+// 853 wide (480 * 16 / 9, at 0x427C00) for a 4:3 one's 640. It is the frame's own shape here, so 19.5:9 is not 16:9
+// stretched
 constexpr uint32_t kVideoFlags = 0x48099C, kWideWidth = 0x427C00;
 void WidenAspect() {
     if (!(kernel::G<uint8_t>(kVideoFlags) & 1)) return;
@@ -23,6 +24,42 @@ void WidenAspect() {
     std::memcpy(&bits, &w, 4);
     kernel::W32(kWideWidth, bits);
 }
+
+// The 3D views' projection (0x0C7740, thiscall, the view's matrices in ecx, the eView first of 4 arguments): the
+// camera's horizontal field of view ([[view + 0x40] + 0xC4], 16 bit angle) gives the x scale, cot of its half, at
+// +0x40; the vertical is that angle times 9/16 with the widescreen flag (3/4 without), its scale at +0x54. A frame
+// wider than 16:9 was the 16:9 picture stretched across it. The x scale is made the frame's, keeping the vertical
+// (more of the road on the sides, not less above and below), before the view's matrix times it (0x2B91C4, at
+// 0x0C7A04) gives the view projection that the frustum's planes are cut from, so what is culled widens with it.
+// Only the views drawn over the frame: the players' (1, 2), their road reflections (4, 5) and glows (6, 7), the
+// ones the game gives the widescreen angle; not the mirror's or the environment cube's faces
+constexpr uint32_t kViewType = 0x4, kProjection = 0x40;
+uint32_t g_widen_view = 0;  // the view's matrices while its projection is made, game thread
+bool WideView(uint32_t type) { return type == 1 || type == 2 || (type >= 4 && type <= 7); }
+}  // namespace game
+
+X86_EXTERN_FUNC(__imp__sub_000C7740);
+X86_FUNC(sub_000C7740) {
+    uint32_t view = kernel::R32(ctx.esp + 4);
+    bool wide = (kernel::G<uint8_t>(game::kVideoFlags) & 1) && view && game::WideView(kernel::R32(view + game::kViewType));
+    game::g_widen_view = wide ? ctx.ecx : 0;
+    __imp__sub_000C7740(ctx, base);
+    game::g_widen_view = 0;
+}
+
+// the matrix product (out, a, b; cdecl): for the view being made, its projection is widened just before
+X86_EXTERN_FUNC(__imp__sub_002B91C4);
+X86_FUNC(sub_002B91C4) {
+    uint32_t m = game::g_widen_view;
+    if (m && kernel::R32(ctx.esp + 8) == m && kernel::R32(ctx.esp + 12) == m + game::kProjection) {
+        game::g_widen_view = 0;
+        float& x = kernel::G<float>(m + game::kProjection);
+        x *= (16.0f / 9.0f) / game::Aspect();
+    }
+    __imp__sub_002B91C4(ctx, base);
+}
+
+namespace game {
 
 // Switches the game reads and never writes, all 1 on the disc:
 // - the cars' reflection is a cube drawn around the camera's car each frame, the world six times more (views 0x12 on,

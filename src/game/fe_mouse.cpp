@@ -152,11 +152,13 @@ bool KeyboardPackage(uint32_t p) {
 
 // The keys are in groups, which FEngTestForIntersection leaves out (it tests an object's own place, in its group's
 // units): a key is tested as drawn, by its cached render object's (+0x58) transform in the front end's 640x480 (its
-// size at +0x30 and +0x44, its middle at +0x60 and +0x64). That 640x480 is drawn into the middle 90% of FEng's
-// screen across and 93.75% down (576x450, measured off the frame: the keys' places against where they show)
+// size at +0x30 and +0x44, its middle at +0x60 and +0x64). That 640x480 is drawn into the middle 576x448 of FEng's
+// screen (the screen transform, 0x0D4888: 576 / width across and 448 / 480 down), times the front end's scale at
+// 0x427BFC (the profile's, 1 on the disc's defaults)
 constexpr uint32_t kRenderObject = 0x58;
 constexpr uint32_t kRenderWidth = 0x30, kRenderHeight = 0x44, kRenderX = 0x60, kRenderY = 0x64;
-constexpr float kSafeAcross = 0.9f, kSafeDown = 0.9375f;
+constexpr float kSafeAcross = 576.0f / 640.0f, kSafeDown = 448.0f / 480.0f;
+constexpr uint32_t kFeScale = 0x427BFC;
 
 float PeekFloat(uint32_t va) {
     uint32_t b = Peek(va);
@@ -188,7 +190,9 @@ uint32_t PickKey(X86Context& ctx, uint32_t p) {
     // FEng's screen to the front end's 640x480: 480 times the aspect wide with the widescreen flag, else the 640
     // stretched across the frame (FeTouch)
     float aspect = Aspect(), across = aspect >= 1.5f ? 1.0f : 480.0f * aspect / 640.0f;
-    float x = float(g_x) / (kSafeAcross * across) + 320.0f, y = float(g_y) / kSafeDown + 240.0f;
+    float scale = PeekFloat(kFeScale);
+    if (!(scale > 0.1f && scale < 2.0f)) scale = 1.0f;
+    float x = float(g_x) / (kSafeAcross * across * scale) + 320.0f, y = float(g_y) / (kSafeDown * scale) + 240.0f;
     uint32_t key = KeyAt(x, y, Peek(p + kPackageObjects), -1, budget);
     if (!key || key == kernel::R32(p + kCurrentButton)) return key;
     uint32_t ecx = ctx.ecx;
