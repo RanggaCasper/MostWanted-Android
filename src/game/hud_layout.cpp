@@ -28,7 +28,7 @@ constexpr uint32_t kDataX = 0x1C, kDataY = 0x20;
 constexpr int kMaxPackages = 64, kMaxObjects = 1500;
 
 // the groups of each item, by their names' hashes. The speedometer's are in the bottom right cluster (group 0x5D0101F1,
-// whose other groups are the race's information at the top right): the dial, the speed, the needle, the nitrous and
+// whose other groups are the race's information and a pursuit's boxes at the top right): the dial, the speed, the needle, the nitrous and
 // speedbreaker gauges and the turbo's. The minimap's: its map (TRACK_MAP's four tiles), its icons (group 0x00A1A862:
 // the player's arrow, the cops, the events, placed by Hud_Minimap) and the ring round the event it points to
 struct Piece {
@@ -51,7 +51,13 @@ constexpr Piece kPieces[] = {
     {0xB1C5ED0D, kHudRaceInfo},  // RaceInformationGroup: the position, the lap or completion and the time
     {0x5ED609A1, kHudRaceInfo},  // LeaderBoardGroup: the racers under it
     {0x9AFCE2B8, kHudRaceInfo},
-    {0x2269D232, kHudRaceInfo},
+    {0x2269D232, kHudRaceInfo},  // a pursuit's milestones and their progress
+    // a pursuit's other boxes in the cluster, its column at the top right: the bounty with the pursuit's time, then the
+    // total bounty, the cash and the cost to state
+    {0xDE89E070, kHudRaceInfo},
+    {0xEA903012, kHudRaceInfo},
+    {0x3F8644CA, kHudRaceInfo},
+    {0xD60FC075, kHudRaceInfo},
     {0xA1341735, kHudTrax},  // EA_TRAX.fng's banner, the song playing (in the front end too)
 };
 
