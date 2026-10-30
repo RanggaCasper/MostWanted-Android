@@ -31,7 +31,7 @@ struct Options {
     bool fog = true;    // the distance fog, native/vulkan.cpp draws without it when off
     // the cars' reflection, six more views: drawn every frame (0), every 2nd (1), every 4th (2) or off (3, a grey
     // cube read instead); src/game/game.cpp's ApplyGraphicsSwitches
-    uint32_t reflections = 0;
+    uint32_t reflections = 2;  // mobile default: update the six-face car reflection every fourth frame
     bool particles = true;    // tyre smoke, sparks and crash debris, the same
     bool shadows = true;      // the shadows under the cars, the same; the trees' and buildings', native/vulkan.cpp
     bool road_reflections = true;  // the wet road's reflection, the same

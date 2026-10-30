@@ -127,9 +127,8 @@ namespace app {
 namespace {
 
 const char* kModes[] = {"fullscreen", "borderless", "windowed"};
-// the defaults a settings file was written under: 3 has the frame rate capped at 60 and vsync off, which a file from
-// before takes once, its player's own choices kept from then on
-constexpr int kDefaults = 3;
+// the defaults a settings file was written under: 4 also uses quarter-rate car reflections on phones
+constexpr int kDefaults = kSettingsVersion;
 
 std::filesystem::path File() { return ExeDir() / kGame.settings; }
 

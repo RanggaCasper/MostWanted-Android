@@ -30,6 +30,10 @@ void Rumble(int port, uint16_t& left, uint16_t& right) {
 void Load(const void* table) {
     const toml::table& t = *static_cast<const toml::table*>(table);
     Options& o = Opt();
+    // Settings from before version 4 stored FULL (0) as the default. Move that old default to QUARTER;
+    // explicit half, quarter and off choices are kept.
+    if (t["defaults"].value_or(int64_t(0)) < 4 && t["car_reflections"].value_or(int64_t(2)) == 0)
+        o.reflections = 2;
     std::string language = t["language"].value_or(o.language);
     // a language no longer offered (French, German, Italian, Spanish) goes back to English
     if (KnownLanguage(language) && LanguageAvailable(language)) o.language = language;
