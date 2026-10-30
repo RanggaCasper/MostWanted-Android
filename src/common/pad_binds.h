@@ -12,6 +12,7 @@ const Action* PadActions(size_t* count);  // `defaults` names the mapping's inpu
 std::string PadBinding(size_t action);     // the bound input's name, empty for the mapping's
 void PadBind(size_t action, const std::string& source);  // empty goes back to the mapping
 void ResetPadBindings();
+void SetPadMenuMode(bool menu);
 void LoadPadBindings();      // after the settings load
 std::string PressedPadInput();  // an input of any controller pressed now, empty for none
 

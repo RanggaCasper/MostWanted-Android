@@ -1,3 +1,4 @@
+#include "common/fe_mouse.h"
 #include <toml++/toml.hpp>
 
 #include "app/app.h"
@@ -15,8 +16,11 @@ namespace {
 void Pad(int port, input::Pad& pad) {
     input::SeenPad(pad);
     if (port == 0) pad.connected = true;
-    if (app::MenuOpen()) pad = input::Pad{.connected = pad.connected};
-    else if (port == 0) input::Keyboard(pad);
+    const bool panel = app::MenuOpen();
+    if (!panel && port == 0) input::Keyboard(pad);
+    const bool consumed = OptionsMenuPad(port, pad);
+    if (panel || consumed)
+        pad = input::Pad{.connected = pad.connected};
 }
 
 // no vibration while the keyboard and mouse are in use

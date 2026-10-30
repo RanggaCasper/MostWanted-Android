@@ -1,3 +1,5 @@
+#include "common/menu.h"
+#include "common/pad_binds.h"
 // Most Wanted's menus are FEng packages, and FEng kept the PC's mouse: packages carry mouse regions (FF_MouseObject,
 // MainMenu.fng's five: its arrows, its middle icon and the button prompts) that it tests a pointer against and sends
 // over, press and click messages for (FEngine::UpdateMouseState, 0x158500). The console's FEngine has its mouse off
@@ -254,6 +256,7 @@ void FeFrame() {
     uint32_t fe = FEngine();
     if (!fe) {
         g_menu = false;
+        input::SetPadMenuMode(true);
         return;
     }
     static const uint32_t thunk = dispatch::HostThunk(GetMouseInfo);
@@ -299,6 +302,7 @@ void FeFrame() {
     }
     g_package = menu;
     g_menu = menu != 0;
+    input::SetPadMenuMode(menu != 0 || !racing || app::MenuOpen());
     g_tap_anywhere = menu && menu == prompted && prompts.shown[0];
     std::lock_guard lock(g_prompts_lock);
     g_prompts = prompts;
