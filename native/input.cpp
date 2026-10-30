@@ -1,3 +1,4 @@
+#include <atomic>
 // controllers through SDL on Android: as the SDK's runtime/core/input.cpp reads them, but the plug events come from
 // the main thread's event loop (Android's input reaches SDL there), and port 0 also takes the touch controls. The
 // CONTROLLER page's bindings (common/pad_binds.h) go over SDL's mapping.
@@ -82,6 +83,7 @@ struct Source {
 using PadBinds = std::array<Source, kPadCount>;
 std::mutex g_pad_bind_lock;
 PadBinds g_pad_binds;
+std::atomic<bool> g_pad_menu_mode{true};
 
 struct HatDir {
     int bit;
@@ -90,7 +92,10 @@ struct HatDir {
 constexpr HatDir kHatDirs[] = {{SDL_HAT_UP, "up"}, {SDL_HAT_DOWN, "down"}, {SDL_HAT_LEFT, "left"}, {SDL_HAT_RIGHT, "right"}};
 
 Source ParseSource(const std::string& text) {
+    if (text == "trigger left") return Source{'t', 5};
+    if (text == "trigger right") return Source{'t', 4};
     Source s;
+    if (text == "unbound") return Source{'u'};
     char word[8] = "", sign = 0;
     if (std::sscanf(text.c_str(), "button %d", &s.index) == 1) s.kind = 'b';
     else if (std::sscanf(text.c_str(), "key %d", &s.index) == 1) s.kind = 'k';
@@ -104,6 +109,9 @@ Source ParseSource(const std::string& text) {
 }
 
 std::string SourceText(const Source& s) {
+    if (s.kind == 't')
+        return s.index == 5 ? "trigger left" : "trigger right";
+    if (s.kind == 'u') return "unbound";
     char text[32] = "";
     if (s.kind == 'b') std::snprintf(text, sizeof(text), "button %d", s.index);
     else if (s.kind == 'k') std::snprintf(text, sizeof(text), "key %d", s.index);
@@ -177,13 +185,20 @@ int OutputCode(const SDL_GamepadBinding& b, const Source& s) {
 
 // what the mapping read for a code let go: a stick's whole axis
 void Clear(Pad& p, int code) {
-    if (code < 0) return;
-    if (code < kFirstBit) p.analog[code] = 0;
-    else if (code < kFirstStick) p.buttons &= uint16_t(~(1u << (code - kFirstBit)));
-    else if (code < 18) p.ly = 0;
-    else if (code < 20) p.lx = 0;
-    else if (code < 22) p.ry = 0;
-    else p.rx = 0;
+    if (code < 0 || code >= 24) return;
+    if (code < kFirstBit) {
+        p.analog[code] = 0;
+    } else if (code < kFirstStick) {
+        p.buttons &= uint16_t(~(1u << (code - kFirstBit)));
+    } else {
+        int16_t* axis = code < 18 ? &p.ly :
+                        code < 20 ? &p.lx :
+                        code < 22 ? &p.ry : &p.rx;
+        const bool positive =
+            code == 16 || code == 19 || code == 20 || code == 23;
+        if ((positive && *axis > 0) || (!positive && *axis < 0))
+            *axis = 0;
+    }
 }
 
 // an input's press, 0 to 1
@@ -222,21 +237,8 @@ void PressSticks(Pad& p, const float (&dirs)[8]) {
 }
 
 // a bound input presses its action alone, no longer what the mapping gave it
-void ApplyBinds(SDL_Gamepad* pad, Pad& p, const PadBinds& binds) {
-    int n = 0;
-    SDL_GamepadBinding** list = SDL_GetGamepadBindings(pad, &n);
-    for (const Source& s : binds) {
-        if (!s.kind || s.kind == 'k') continue;
-        for (int i = 0; i < n; i++)
-            if (Matches(*list[i], s)) Clear(p, OutputCode(*list[i], s));
-    }
-    SDL_free(list);
-    SDL_Joystick* joy = SDL_GetGamepadJoystick(pad);
-    float dirs[8] = {};
-    for (size_t a = 0; a < kPadCount; a++)
-        if (binds[a].kind && binds[a].kind != 'k') Press(p, dirs, kPadActions[a].code, Value(joy, binds[a]));
-    PressSticks(p, dirs);
-}
+void ApplyBinds(SDL_Gamepad* pad, Pad& p,
+                const PadBinds& binds, bool loose);
 
 void AddPad(SDL_JoystickID id) {
     for (SDL_Gamepad* pad : g_pads)
@@ -359,6 +361,123 @@ void MergeLoose(Pad& p, const PadBinds& binds) {
     further(p.ry, Axis(-l.ry));
 }
 
+int LooseCode(const Source& source) {
+    if (source.kind != 'k') return -1;
+    int bit, analog;
+    LooseKey(source.index, bit, analog);
+    return analog >= 0 ? analog :
+           bit >= 0 ? bit + kFirstBit : -1;
+}
+
+// Caller holds g_lock. Recognize trigger aliases only from known
+// Android key meanings or SDL's mapping, never raw button numbers.
+int LogicalTriggerCode(const Source& source) {
+    if (source.kind == 't')
+        return source.index == 4 || source.index == 5
+            ? source.index : -1;
+
+    if (source.kind == 'k') {
+        if (source.index == 104) return 5;
+        if (source.index == 105) return 4;
+        return -1;
+    }
+
+    if (source.kind != 'b' && source.kind != 'h' &&
+        source.kind != 'a')
+        return -1;
+
+    for (SDL_Gamepad* pad : g_pads) {
+        if (!pad) continue;
+        int count = 0;
+        SDL_GamepadBinding** list =
+            SDL_GetGamepadBindings(pad, &count);
+        int result = -1;
+
+        for (int i = 0; list && i < count; ++i) {
+            if (!Matches(*list[i], source)) continue;
+            const int code = OutputCode(*list[i], source);
+            if (code == 4 || code == 5) {
+                result = code;
+                break;
+            }
+        }
+
+        SDL_free(list);
+        if (result >= 0) return result;
+    }
+    return -1;
+}
+
+// Caller holds g_lock and g_loose_lock.
+// Only port 0 receives the existing Android loose-controller fallback.
+float LogicalTriggerValue(SDL_Gamepad* pad, int code, bool loose) {
+    const bool left = code == 5;
+    float value = 0.0f;
+
+    if (pad) {
+        const auto axis = left ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER
+                               : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER;
+        value = std::max(
+            0.0f, float(SDL_GetGamepadAxis(pad, axis)) / 32767.0f
+        );
+    }
+
+    if (loose && g_loose.seen) {
+        value = std::max(value, left ? g_loose.lt : g_loose.rt);
+        if (g_loose.keys[size_t(left ? 104 : 105)])
+            value = 1.0f;
+    }
+
+    return std::clamp(value, 0.0f, 1.0f);
+}
+
+// Called while g_lock is held, after default SDL/loose inputs are merged.
+void ApplyBinds(SDL_Gamepad* pad, Pad& p,
+                const PadBinds& binds, bool loose) {
+    int count = 0;
+    SDL_GamepadBinding** list =
+        pad ? SDL_GetGamepadBindings(pad, &count) : nullptr;
+
+    // An override removes the destination's old default input.
+    for (size_t a = 0; a < kPadCount; ++a)
+        if (binds[a].kind) Clear(p, kPadActions[a].code);
+
+    // A claimed physical input stops pressing its original action.
+    for (const Source& source : binds) {
+        if (!source.kind || source.kind == 'u') continue;
+        if (source.kind == 't') {
+            Clear(p, source.index);
+        } else if (source.kind == 'k') {
+            if (loose) Clear(p, LooseCode(source));
+        } else {
+            for (int i = 0; i < count; ++i)
+                if (Matches(*list[i], source))
+                    Clear(p, OutputCode(*list[i], source));
+        }
+    }
+    SDL_free(list);
+
+    SDL_Joystick* joy = pad ? SDL_GetGamepadJoystick(pad) : nullptr;
+    float directions[8] = {};
+    std::lock_guard loose_lock(g_loose_lock);
+    for (size_t a = 0; a < kPadCount; ++a) {
+        const Source& source = binds[a];
+        float value = 0;
+        if (source.kind == 't') {
+            value = LogicalTriggerValue(pad, source.index, loose);
+        } else if (source.kind == 'k') {
+            if (loose && source.index >= 0 &&
+                source.index < kLooseCodes)
+                value = g_loose.keys[size_t(source.index)] ? 1.0f : 0.0f;
+        } else if (joy && (source.kind == 'b' ||
+                          source.kind == 'h' || source.kind == 'a')) {
+            value = Value(joy, source);
+        }
+        Press(p, directions, kPadActions[a].code, value);
+    }
+    PressSticks(p, directions);
+}
+
 }  // namespace
 
 // MostWantedActivity: the loose controller's buttons, sticks and triggers, and its letting go when the app loses the focus
@@ -388,6 +507,10 @@ extern "C" JNIEXPORT void JNICALL Java_com_racas_mostwanted_MostWantedActivity_n
     g_loose.seen = seen;
 }
 
+void SetPadMenuMode(bool menu) {
+    g_pad_menu_mode.store(menu, std::memory_order_relaxed);
+}
+
 void Init() {
     int v = SDL_GetVersion();
     LOGI("input: SDL %d.%d.%d", SDL_VERSIONNUM_MAJOR(v), SDL_VERSIONNUM_MINOR(v), SDL_VERSIONNUM_MICRO(v));
@@ -407,18 +530,23 @@ void OnPadEvent(const SDL_Event& e) {
 
 Pad Poll(int port) {
     Pad p;
-    PadBinds binds = PadBindsNow();
+    const bool menu = g_pad_menu_mode.load(std::memory_order_relaxed);
+    const PadBinds binds = menu ? PadBinds{} : PadBindsNow();
     {
         std::lock_guard lock(g_lock);
         if (SDL_Gamepad* pad = port >= 0 && port < 4 ? g_pads[port] : nullptr) {
             Read(pad, p);
-            ApplyBinds(pad, p, binds);
         }
     }
     // a controller pushed past a rest, not just plugged in
     constexpr int16_t kStickPushed = 16000;
     auto pushed = [](int16_t v) { return v > kStickPushed || v < -kStickPushed; };
-    if (port == 0) MergeLoose(p, binds);
+    if (port == 0) MergeLoose(p, PadBinds{});
+    if (!menu) {
+        std::lock_guard lock(g_lock);
+        SDL_Gamepad* pad = port >= 0 && port < 4 ? g_pads[port] : nullptr;
+        ApplyBinds(pad, p, binds, port == 0);
+    }
     bool analog = std::any_of(std::begin(p.analog), std::end(p.analog), [](uint8_t a) { return a > 0x20; });
     if (p.buttons || analog || pushed(p.lx) || pushed(p.ly) || pushed(p.rx) || pushed(p.ry)) touch::PadUsed();
     touch::Apply(port, p);
@@ -465,6 +593,8 @@ std::string KeyName(int code) {
 
 // an input's name: what the first controller's mapping makes it, else its number; under g_lock
 std::string SourceName(const Source& s) {
+    if (s.kind == 't') return s.index == 5 ? "L2" : "R2";
+    if (s.kind == 'u') return "UNBOUND";
     if (s.kind == 'k') return KeyName(s.index);
     for (SDL_Gamepad* pad : g_pads) {
         if (!pad) continue;
@@ -510,13 +640,74 @@ std::string PadBinding(size_t action) {
 
 void PadBind(size_t action, const std::string& source) {
     if (action >= kPadCount) return;
-    Source s = ParseSource(source);
+    Source wanted = ParseSource(source);
+    if (!source.empty() && !wanted.kind) return;
+
     {
-        std::lock_guard lock(g_pad_bind_lock);
-        g_pad_binds[action] = s;
+        // Same lock order as ApplyBinds: controller state before binds.
+        std::lock_guard input_lock(g_lock);
+
+        const int trigger = LogicalTriggerCode(wanted);
+        if (trigger >= 0)
+            wanted = Source{'t', trigger};
+
+        std::array<bool, kPadCount> displaced{};
+        const int default_code =
+            wanted.kind == 't' ? wanted.index : LooseCode(wanted);
+
+        for (size_t a = 0; a < kPadCount; ++a)
+            displaced[a] = kPadActions[a].code == default_code;
+
+        if (wanted.kind == 'b' || wanted.kind == 'h' ||
+            wanted.kind == 'a') {
+            for (SDL_Gamepad* pad : g_pads) {
+                if (!pad) continue;
+                int count = 0;
+                SDL_GamepadBinding** list =
+                    SDL_GetGamepadBindings(pad, &count);
+
+                for (int i = 0; list && i < count; ++i) {
+                    if (!Matches(*list[i], wanted)) continue;
+                    const int code = OutputCode(*list[i], wanted);
+                    for (size_t a = 0; a < kPadCount; ++a)
+                        if (kPadActions[a].code == code)
+                            displaced[a] = true;
+                }
+                SDL_free(list);
+            }
+        }
+
+        std::lock_guard bind_lock(g_pad_bind_lock);
+        if (wanted.kind && wanted.kind != 'u') {
+            for (size_t a = 0; a < kPadCount; ++a) {
+                if (a == action) continue;
+                const Source& previous = g_pad_binds[a];
+
+                const bool same_raw =
+                    previous.kind == wanted.kind &&
+                    previous.index == wanted.index &&
+                    previous.dir == wanted.dir;
+
+                const bool same_trigger =
+                    wanted.kind == 't' &&
+                    LogicalTriggerCode(previous) == wanted.index;
+
+                if (same_raw || same_trigger ||
+                    (!previous.kind && displaced[a]))
+                    g_pad_binds[a] = Source{'u'};
+            }
+        }
+
+        g_pad_binds[action] = wanted;
+
         auto& saved = game::Opt().pad;
-        if (s.kind) saved[kPadActions[action].action.id] = SourceText(s);
-        else saved.erase(kPadActions[action].action.id);
+        for (size_t a = 0; a < kPadCount; ++a) {
+            const char* id = kPadActions[a].action.id;
+            if (g_pad_binds[a].kind)
+                saved[id] = SourceText(g_pad_binds[a]);
+            else
+                saved.erase(id);
+        }
     }
     app::Save();
 }
@@ -537,28 +728,53 @@ void LoadPadBindings() {
 }
 
 std::string PressedPadInput() {
-    {
-        std::lock_guard lock(g_lock);
-        for (SDL_Gamepad* pad : g_pads) {
-            SDL_Joystick* joy = pad ? SDL_GetGamepadJoystick(pad) : nullptr;
-            if (!joy) continue;
-            for (int i = 0; i < SDL_GetNumJoystickButtons(joy); i++)
-                if (SDL_GetJoystickButton(joy, i)) return SourceText({'b', i});
-            for (int i = 0; i < SDL_GetNumJoystickHats(joy); i++)
-                for (const HatDir& d : kHatDirs)
-                    if (SDL_GetJoystickHat(joy, i) & d.bit) return SourceText({'h', i, d.bit});
-            // an axis well away from where it rested: a stick pushed or a trigger pulled
-            for (int i = 0; i < SDL_GetNumJoystickAxes(joy); i++) {
-                Sint16 rest = 0;
-                SDL_GetJoystickAxisInitialState(joy, i, &rest);
-                int moved = int(SDL_GetJoystickAxis(joy, i)) - int(rest);
-                if (std::abs(moved) > 20000) return SourceText({'a', i, moved > 0 ? 1 : -1});
-            }
+    std::lock_guard input_lock(g_lock);
+    std::lock_guard loose_lock(g_loose_lock);
+
+    // Prefer mapped logical triggers over their digital/raw duplicates.
+    // A small threshold catches partial pulls before a full raw-axis
+    // movement would have passed the old 20000-unit threshold.
+    for (SDL_Gamepad* pad : g_pads) {
+        if (!pad) continue;
+        if (LogicalTriggerValue(pad, 5, false) > 0.12f)
+            return SourceText({'t', 5});
+        if (LogicalTriggerValue(pad, 4, false) > 0.12f)
+            return SourceText({'t', 4});
+    }
+
+    if (LogicalTriggerValue(nullptr, 5, true) > 0.12f)
+        return SourceText({'t', 5});
+    if (LogicalTriggerValue(nullptr, 4, true) > 0.12f)
+        return SourceText({'t', 4});
+
+    for (SDL_Gamepad* pad : g_pads) {
+        SDL_Joystick* joy =
+            pad ? SDL_GetGamepadJoystick(pad) : nullptr;
+        if (!joy) continue;
+
+        for (int i = 0; i < SDL_GetNumJoystickButtons(joy); ++i)
+            if (SDL_GetJoystickButton(joy, i))
+                return SourceText({'b', i});
+
+        for (int i = 0; i < SDL_GetNumJoystickHats(joy); ++i)
+            for (const HatDir& d : kHatDirs)
+                if (SDL_GetJoystickHat(joy, i) & d.bit)
+                    return SourceText({'h', i, d.bit});
+
+        for (int i = 0; i < SDL_GetNumJoystickAxes(joy); ++i) {
+            Sint16 rest = 0;
+            SDL_GetJoystickAxisInitialState(joy, i, &rest);
+            const int moved =
+                int(SDL_GetJoystickAxis(joy, i)) - int(rest);
+            if (std::abs(moved) > 20000)
+                return SourceText({'a', i, moved > 0 ? 1 : -1});
         }
     }
-    std::lock_guard lock(g_loose_lock);
-    for (int code = 0; code < kLooseCodes; code++)
-        if (g_loose.keys[size_t(code)]) return SourceText({'k', code});
+
+    for (int code = 0; code < kLooseCodes; ++code)
+        if (g_loose.keys[size_t(code)])
+            return SourceText({'k', code});
+
     return {};
 }
 

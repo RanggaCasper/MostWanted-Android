@@ -1,8 +1,12 @@
+#include "cpu/x86_context.h"
+#include "core/input.h"
 #pragma once
 #include <string>
 
 // Most Wanted's FEng mouse, the touch screen (src/game/fe_mouse.cpp)
 namespace game {
+bool OptionsMenuPad(int port, const input::Pad& pad);
+void OptionsBindingFrame(X86Context& ctx);
 
 void FeFrame();             // game thread, at each present
 bool FeMenuShown();         // any thread: a menu that takes the pointer is up

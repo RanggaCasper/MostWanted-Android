@@ -1,3 +1,12 @@
+#include <tuple>
+#include "common/mouse_keyboard.h"
+#include "common/options.h"
+#include "app/app.h"
+#include <map>
+#include "core/input.h"
+#include <mutex>
+#include <atomic>
+#include "common/pad_binds.h"
 // The recomp's settings in the game's own options menu. UIOptionsMain (ctor 0x104C70, both the title's OPTIONS and the
 // pause menu's) is an icon scroller its Setup (0xED5A0) fills with IconOptions (0x4C bytes, ctor 0x138BC0: texture,
 // name, description); an icon's React (vtable + 4) sets the category, FEDatabase's options [+0x24], on Accept, and
@@ -103,7 +112,22 @@ constexpr uint32_t kStringHash = 0x157E40;         // bStringHash (text), cdecl
 uint32_t g_scratch = 0;  // strings handed to FEPrintf
 uint32_t g_icon_vtable = 0, g_widget_vtable = 0;
 std::unordered_map<uint32_t, int> g_icons;  // an IconOption of ours, its section
-uint32_t g_waiting = 0;                     // the widget whose binding waits
+uint32_t g_waiting = 0;
+uint32_t g_waiting_screen = 0;
+std::atomic<uint64_t> g_capture_target{0}, g_capture_request{0};
+std::atomic<uint32_t> g_capture_package{0}, g_capture_screen{0};
+std::atomic<int> g_capture_kind{0};
+std::atomic<bool> g_capture_cancel{false}, g_capture_drain{false};
+uint32_t g_capture_epoch = 0;
+
+bool IsBinding(const Row* row) {
+    return row && (row->kind == Kind::Bind || row->kind == Kind::PadBind);
+}                     // the widget whose binding waits
+// Assignments as this Controls screen was entered.
+uint32_t g_binding_snapshot_screen = 0;
+std::map<std::string, std::string> g_saved_keys;
+std::map<std::string, std::string> g_saved_pad;
+
 uint32_t g_textures[kIconCount] = {};
 bool g_android_next = false;  // the next UIOptionsMain is ANDROID OPTIONS: the sections' icons, not the game's
 uint32_t g_android_menu = 0;  // the UIOptionsMain that is
@@ -487,6 +511,26 @@ bool LiveWidgets(X86Context& ctx, uint32_t& current, uint32_t* package = nullptr
     return true;
 }
 
+uint32_t InputPackage() {
+    const uint32_t engine = Peek(Peek(kFEng));
+    uint32_t package = engine ? Peek(engine + 0xE0) : 0;
+    for (unsigned count = 0; package && count < 64; ++count) {
+        if (!mem::IsCommitted(package + 0x28)) return 0;
+        if (kernel::G<uint8_t>(package + 0x28) &&
+            (Peek(package + 0x20) & 1))
+            return package;
+        package = Peek(package + 4);
+    }
+    return 0;
+}
+
+bool CaptureOwner(X86Context& ctx, uint32_t& current, uint32_t& package) {
+    return !app::MenuOpen() &&
+        LiveWidgets(ctx, current, &package) &&
+        InputPackage() == package &&
+        Peek(current) == g_widget_vtable;
+}
+
 bool ArrowPressed(uint32_t widget) {
     for (uint32_t field : {kWidgetLeft, kWidgetRight})
         if (Peek(Peek(Peek(widget + field) + kObjectScript) + kScriptId) == kArrowPressed) return true;
@@ -567,10 +611,29 @@ bool GroupOffset(X86Context& ctx, uint32_t package, float& ox, float& oy) {
 
 // a link or a binding on our row opened, as Accept does; false for another row
 bool OpenRow(X86Context& ctx, uint32_t widget) {
-    const Row* r = RowOf(widget);
-    if (!r || (r->kind != Kind::Link && r->kind != Kind::Bind && r->kind != Kind::PadBind)) return false;
-    app::rows::Activate(*r);
-    if (r->kind != Kind::Link) g_waiting = widget;
+    const Row* row = RowOf(widget);
+    if (!row || (!IsBinding(row) && row->kind != Kind::Link))
+        return false;
+
+    if (IsBinding(row)) {
+        uint32_t current = 0, package = 0;
+        if (!CaptureOwner(ctx, current, package) || current != widget ||
+            app::Capturing() || g_waiting || g_capture_drain.load())
+            return true;
+        g_capture_target = 0;
+        g_capture_cancel = false;
+        g_capture_kind = row->kind == Kind::Bind ? 1 : 2;
+    }
+
+    app::rows::Activate(*row);
+    if (IsBinding(row)) {
+        if (app::Capturing()) {
+            g_waiting = widget;
+            g_waiting_screen = g_window.screen;
+        } else {
+            g_capture_kind = 0;
+        }
+    }
     Redraw(ctx, widget);
     return true;
 }
@@ -613,6 +676,10 @@ void TapRows(X86Context& ctx) {
 void WidgetAct(X86Context& ctx, uint8_t*) {
     uint32_t widget = ctx.ecx, message = R32(ctx.esp + 8);
     uint32_t esp = ctx.esp;
+    if (g_waiting || g_capture_drain.load()) {
+        ctx.esp = esp + 4 + 8;
+        return;
+    }
     bool step = message == kLeft || message == kRight;
     if (step && FeMouseDown()) {  // an arrow's click: whose row the next update shows
         g_pending = message;
@@ -620,7 +687,8 @@ void WidgetAct(X86Context& ctx, uint8_t*) {
     } else if (step) {
         Step(ctx, widget, message);
     } else if (message == kAccept) {
-        OpenRow(ctx, widget);
+        const Row* row = RowOf(widget);
+        if (row && row->kind == Kind::Link) OpenRow(ctx, widget);
     }
     ctx.esp = esp + 4 + 8;
 }
@@ -635,6 +703,103 @@ bool RowSlot(X86Context& ctx, uint32_t screen, uint32_t n) {
     return FindObject(ctx, package, hash) != 0;
 }
 
+auto GraphicsFields() {
+    auto& s = app::Get();
+    auto& o = game::Opt();
+    return std::tie(
+        s.render_percent,
+        s.vsync,
+        s.fps_cap,
+        s.aniso,
+        o.aspect_ratio,
+        o.fps_counter,
+        o.fps_position,
+        o.fps_usage,
+        o.fps_temps,
+        o.shader_preload,
+        o.anti_aliasing,
+        o.bloom,
+        o.fog,
+        o.reflections,
+        o.road_reflections,
+        o.shadows,
+        o.particles,
+        o.rain,
+        o.rain_drops,
+        o.yellow_tint,
+        o.motion_blur,
+        o.screen_filter
+    );
+}
+
+auto GraphicsValues() {
+    return std::apply(
+        [](const auto&... values) {
+            return std::make_tuple(values...);
+        },
+        GraphicsFields()
+    );
+}
+
+decltype(GraphicsValues()) g_saved_graphics{};
+uint32_t g_section_snapshot_screen = 0;
+int g_section_snapshot_index = -1;
+std::vector<std::string> g_saved_section_values;
+
+// Value rows only: headings, links, and capture prompts are not settings.
+// Bindings are compared separately using their actual assignment maps.
+std::vector<std::string> SectionValueState(int section) {
+    std::vector<std::string> values;
+    for (const Row& row : SectionRows(section))
+        if (row.kind == Kind::Value)
+            values.push_back(app::rows::Value(row));
+    return values;
+}
+
+void SnapshotBindings(uint32_t screen, int section) {
+    g_section_snapshot_screen =
+        section >= 0 && section < kAndroidSection ? screen : 0;
+    g_section_snapshot_index = section;
+    g_saved_section_values = SectionValueState(section);
+    g_saved_graphics = GraphicsValues();
+
+    g_binding_snapshot_screen = 0;
+    g_saved_keys.clear();
+    g_saved_pad.clear();
+
+    if (section < 0 || section >= kSectionCount) return;
+
+    bool has_bindings = false;
+    for (const Row& row : SectionRows(section))
+        if (IsBinding(&row)) {
+            has_bindings = true;
+            break;
+        }
+
+    if (!has_bindings) return;
+    g_saved_keys = game::Opt().keys;
+    g_saved_pad = game::Opt().pad;
+    g_binding_snapshot_screen = screen;
+}
+
+bool SectionUnchanged(uint32_t screen, int section) {
+    if (!screen || screen != g_section_snapshot_screen ||
+        section != g_section_snapshot_index)
+        return false;
+
+    // Graphics comparison uses actual values, not displayed resolution
+    // dimensions, which could change when the device display changes.
+    if (section == 0)
+        return GraphicsValues() == g_saved_graphics;
+
+    if (screen == g_binding_snapshot_screen &&
+        (game::Opt().keys != g_saved_keys ||
+         game::Opt().pad != g_saved_pad))
+        return false;
+
+    return SectionValueState(section) == g_saved_section_values;
+}
+
 void AddRows(X86Context& ctx, uint32_t screen, int section) {
     if (!g_widget_vtable) {
         g_widget_vtable = mem::AllocSystem(kVtableSlots * 4);
@@ -643,6 +808,17 @@ void AddRows(X86Context& ctx, uint32_t screen, int section) {
         W32(g_widget_vtable + 12, dispatch::HostThunk(WidgetDraw));
         W32(g_widget_vtable + kPositionSlot, dispatch::HostThunk(WidgetPosition));
     }
+    if (g_waiting) {
+        app::rows::CancelBinding();
+        g_capture_drain = true;
+    }
+    g_capture_target = 0;
+    g_capture_request = 0;
+    g_capture_kind = 0;
+    g_capture_cancel = false;
+    g_waiting_screen = 0;
+    g_pending = 0;
+    SnapshotBindings(screen, section);
     g_window = Window{screen, section, {}, 0};
     g_waiting = 0;
     g_tap_row = 0;  // a finger still down from the screen before: its row is not this screen's
@@ -707,17 +883,165 @@ bool Scroll(X86Context& ctx, uint32_t screen, int step) {
     return true;
 }
 
+void FinishBindingDialog(X86Context& ctx) {
+    app::rows::CancelBinding();
+    g_waiting = 0;
+    g_waiting_screen = 0;
+    g_capture_target = 0;
+    g_capture_request = 0;
+    g_capture_kind = 0;
+    g_capture_cancel = false;
+
+    // The A that confirmed the dialog must come up before another capture.
+    g_capture_drain = true;
+    g_pending = 0;
+    g_tap_row = 0;
+
+    // Redrawing invokes guest functions; preserve the caller's context.
+    const X86Context saved = ctx;
+    RedrawAll(ctx);
+    ctx = saved;
+}
+
+bool RestoreBindingSnapshot(uint32_t screen) {
+    if (!screen) return false;
+    bool restored = false;
+
+    if (screen == g_binding_snapshot_screen) {
+        game::Opt().keys = g_saved_keys;
+        game::Opt().pad = g_saved_pad;
+        input::LoadBindings();
+        input::LoadPadBindings();
+        restored = true;
+    }
+
+    if (screen == g_section_snapshot_screen &&
+        g_section_snapshot_index == 0) {
+        GraphicsFields() = g_saved_graphics;
+        restored = true;
+    }
+
+    // Editing applies and saves immediately. Ignore must reverse both
+    // the live values and the persisted configuration.
+    if (restored)
+        app::Save();
+
+    return restored;
+}
+
 }  // namespace
 
 // fe_mouse.cpp's GetMouseInfo, each FEngine update: a touched row made current, and a binding that took its input
 // shows it
+bool OptionsMenuPad(int port, const input::Pad& pad) {
+    if (port < 0 || port >= 4) return false;
+    static std::mutex mutex;
+    static uint64_t observed[4] = {};
+    static bool armed[4] = {};
+    std::lock_guard lock(mutex);
+
+    const bool a = pad.analog[0] > 0x20;
+    const bool b = pad.analog[1] > 0x20;
+    const int kind = g_capture_kind.load();
+
+    if (kind || g_capture_drain.load() || g_capture_request.load()) {
+        if (kind == 1 && b) g_capture_cancel = true;
+        armed[port] = false;
+        return true;
+    }
+
+    uint64_t target = g_capture_target.load();
+    const uint32_t screen = g_capture_screen.load();
+    if (target &&
+        (app::MenuOpen() || b || !screen ||
+         InputPackage() != g_capture_package.load() ||
+         Peek(screen + kScreenCurrent) != uint32_t(target))) {
+        g_capture_target = 0;
+        target = 0;
+    }
+
+    if (observed[port] != target) {
+        observed[port] = target;
+        armed[port] = false;
+    }
+
+    if (!target) return false;
+    if (!a) {
+        armed[port] = true;
+        return false;
+    }
+
+    if (armed[port]) {
+        armed[port] = false;
+        uint64_t empty = 0;
+        g_capture_request.compare_exchange_strong(empty, target);
+    }
+    return true;
+}
+
 void OptionsMenuTick(X86Context& ctx) {
+    if (g_waiting || g_capture_drain.load() || g_capture_request.load())
+        return;
+    uint32_t current = 0, package = 0;
+    if (!CaptureOwner(ctx, current, package)) return;
     FocusTouchedRow(ctx);
     TapRows(ctx);
-    if (!app::rows::PollBinding() || !g_waiting) return;
-    uint32_t widget = g_waiting;
-    g_waiting = 0;
-    Redraw(ctx, widget);
+}
+
+void OptionsBindingFrame(X86Context& ctx) {
+    struct Restore {
+        X86Context& destination;
+        X86Context saved;
+        ~Restore() { destination = saved; }
+    } restore{ctx, ctx};
+
+    uint32_t current = 0, package = 0;
+    const bool owner = CaptureOwner(ctx, current, package);
+    const bool released =
+        input::PressedPadInput().empty() && !input::PressedKey();
+
+    if (g_capture_drain.load() && released)
+        g_capture_drain = false;
+
+    const uint64_t request = g_capture_request.load();
+    if (request) {
+        if (owner && IsBinding(RowOf(current)) &&
+            request == g_capture_target.load() &&
+            uint32_t(request) == current &&
+            !g_waiting && !g_capture_drain.load())
+            OpenRow(ctx, current);
+        g_capture_request = 0;
+    }
+
+    if (g_waiting) {
+        const bool cancel = !owner ||
+            g_waiting_screen != g_window.screen ||
+            g_capture_cancel.exchange(false);
+        if (cancel) app::rows::CancelBinding();
+
+        if (cancel || !app::Capturing() || app::rows::PollBinding()) {
+            g_waiting = 0;
+            g_waiting_screen = 0;
+            g_capture_kind = 0;
+            g_capture_drain = true;
+            g_pending = 0;
+            g_tap_row = 0;
+            if (owner) RedrawAll(ctx);
+        }
+    }
+
+    const uint32_t target =
+        owner && IsBinding(RowOf(current)) && !g_waiting &&
+        !g_capture_drain.load() && !app::Capturing() ? current : 0;
+
+    g_capture_package = owner ? package : 0;
+    g_capture_screen = owner ? g_window.screen : 0;
+    if (uint32_t(g_capture_target.load()) != target) {
+        ++g_capture_epoch;
+        if (!g_capture_epoch) ++g_capture_epoch;
+        g_capture_target = target
+            ? (uint64_t(g_capture_epoch) << 32) | target : 0;
+    }
 }
 
 }  // namespace game
@@ -825,8 +1149,17 @@ constexpr uint32_t kAcceptLeave = 0x406415E3;
 X86_EXTERN_FUNC(__imp__sub_00155D50);
 X86_FUNC(sub_00155D50) {
     uint32_t message = kernel::R32(ctx.esp + 4);
+    if (ctx.ecx == g_window.screen &&
+        (g_waiting || g_capture_drain.load())) {
+        ctx.esp += 4 + 0x10;
+        return;
+    }
     if ((message == kAccept || message == kAcceptLeave) && ctx.ecx == g_window.screen && CategorySection() >= 0) {
         uint32_t ecx = ctx.ecx;
+        if (IsBinding(RowOf(kernel::R32(ecx + kScreenCurrent)))) {
+            ctx.esp += 4 + 0x10;
+            return;
+        }
         if (OpenRow(ctx, kernel::R32(ecx + kScreenCurrent))) {
             ctx.esp += 4 + 0x10;
             return;
@@ -848,15 +1181,11 @@ X86_FUNC(sub_00155D50) {
 // bindings for the controls, not the touch controls (the panel's touch page restores every setting)
 X86_EXTERN_FUNC(__imp__sub_000EE570);
 X86_FUNC(sub_000EE570) {
-    int section = CategorySection();
-    if (section < 0 || ctx.ecx != g_window.screen) return __imp__sub_000EE570(ctx, base);
-    if (kernel::R32(ctx.esp + 4) & 0xFF)
-        for (int page : kSections[section].pages)
-            if (page != 1) app::rows::Defaults(page);
-    uint32_t ecx = ctx.ecx;
-    RedrawAll(ctx);
-    ctx.ecx = ecx;
-    ctx.esp += 4 + 4;
+    if (CategorySection() < 0 || ctx.ecx != g_window.screen)
+        return __imp__sub_000EE570(ctx, base);
+
+    // thiscall with one argument.
+    ctx.esp += 8;
 }
 
 // SwitchPackage (name, arg, 0, 0), thiscall: an options screen of a section leaving for the options (0x105479) comes
@@ -865,5 +1194,73 @@ X86_EXTERN_FUNC(__imp__sub_000EB160);
 X86_FUNC(sub_000EB160) {
     int section = kernel::R32(ctx.esp) == kScreenBack ? CategorySection() : -1;
     if (section >= 0 && section < kAndroidSection) g_android_next = true;
+    if (section >= 0 &&
+        kernel::R32(ctx.esp) == kScreenBack) {
+        g_section_snapshot_screen = 0;
+        g_section_snapshot_index = -1;
+        g_saved_section_values.clear();
+        g_binding_snapshot_screen = 0;
+        g_saved_keys.clear();
+        g_saved_pad.clear();
+    }
     __imp__sub_000EB160(ctx, base);
+}
+
+
+// The stock Ignore path restores the screen's entry-state settings.
+// Our synthetic categories need the host binding maps restored too.
+X86_EXTERN_FUNC(__imp__sub_000DCF30);
+X86_FUNC(sub_000DCF30) {
+    const uint32_t screen = ctx.ecx;
+    if (CategorySection() < 0 || screen != g_window.screen)
+        return __imp__sub_000DCF30(ctx, base);
+
+    if (RestoreBindingSnapshot(screen))
+        FinishBindingDialog(ctx);
+
+    // No arguments; the stock switch has no case for our categories.
+    ctx.esp += 4;
+}
+
+// The confirmed Defaults path calls E5350, not EE570.
+X86_EXTERN_FUNC(__imp__sub_000E5350);
+X86_FUNC(sub_000E5350) {
+    const int section = CategorySection();
+    if (section < 0 || ctx.ecx != g_window.screen)
+        return __imp__sub_000E5350(ctx, base);
+
+    app::rows::CancelBinding();
+
+    // Preserve the original custom-menu defaults policy:
+    // reset the section's pages, but leave the touch layout alone.
+    for (int page : kSections[section].pages)
+        if (page != 1)
+            app::rows::Defaults(page);
+
+    // Do not replace the entry snapshot: Defaults can still be ignored.
+    FinishBindingDialog(ctx);
+
+    // No arguments.
+    ctx.esp += 4;
+}
+
+
+// UIOptionsScreen's comparison against its entry-state settings.
+// Stock categories retain their original implementation.
+X86_EXTERN_FUNC(__imp__sub_000DCE60);
+X86_FUNC(sub_000DCE60) {
+    const int section = CategorySection();
+    const uint32_t screen = ctx.ecx;
+
+    if (section < 0 || section >= kAndroidSection ||
+        screen != g_window.screen ||
+        screen != g_section_snapshot_screen ||
+        section != g_section_snapshot_index)
+        return __imp__sub_000DCE60(ctx, base);
+
+    const bool unchanged = SectionUnchanged(screen, section);
+    ctx.eax = (ctx.eax & 0xFFFFFF00u) | (unchanged ? 1u : 0u);
+
+    // thiscall, no arguments.
+    ctx.esp += 4;
 }

@@ -935,6 +935,7 @@ void rows::Activate(const Row& r) {
     } else if (r.kind == Kind::Bind && g_capture < 0 && g_pad_capture < 0) {
         g_capture_slot = 0;
         g_capture_armed = false;
+        g_pad_capture_since = std::chrono::steady_clock::now();
         g_capture = r.id;
     } else if (r.kind == Kind::PadBind && g_capture < 0 && g_pad_capture < 0) {
         g_pad_capture_armed = false;
@@ -946,30 +947,73 @@ void rows::Activate(const Row& r) {
 // as PollCapture and PollPadCapture without the panel: the key or button that started the wait comes up first, Escape
 // or kPadCaptureTimeout gives up
 bool rows::PollBinding() {
+    using Clock = std::chrono::steady_clock;
+    static std::string candidate;
+    static Clock::time_point first_press{};
+
+    if ((g_capture >= 0 || g_pad_capture >= 0) &&
+        (input::PressedKey() == VK_ESCAPE ||
+         Clock::now() - g_pad_capture_since > kPadCaptureTimeout)) {
+        candidate.clear();
+        rows::CancelBinding();
+        return true;
+    }
+
     if (g_capture >= 0) {
-        int vk = input::PressedKey();
+        const int key = input::PressedKey();
         if (!g_capture_armed) {
-            g_capture_armed = !vk;
+            g_capture_armed =
+                !key && input::PressedPadInput().empty();
             return false;
         }
-        if (!vk) return false;
-        if (vk != VK_ESCAPE) input::Bind(size_t(g_capture.load()), vk, g_capture_slot);
+        if (!key) return false;
+        input::Bind(size_t(g_capture.load()), key, g_capture_slot);
         g_capture = -1;
         return true;
     }
+
     if (g_pad_capture >= 0) {
-        std::string input = input::PressedPadInput();
-        bool cancel = std::chrono::steady_clock::now() - g_pad_capture_since > kPadCaptureTimeout;
-        if (!cancel && !g_pad_capture_armed) {
-            g_pad_capture_armed = input.empty();
+        const std::string source = input::PressedPadInput();
+
+        if (!g_pad_capture_armed) {
+            candidate.clear();
+            g_pad_capture_armed = source.empty();
             return false;
         }
-        if (!cancel && input.empty()) return false;
-        if (!cancel) input::PadBind(size_t(g_pad_capture.load()), input);
+
+        if (candidate.empty()) {
+            if (source.empty()) return false;
+            candidate = source;
+            first_press = Clock::now();
+        }
+
+        // Logical trigger wins over the first raw sample.
+        // Otherwise retain the first input rather than chasing noise.
+        const bool trigger =
+            source == "trigger left" || source == "trigger right";
+        const bool already_trigger =
+            candidate == "trigger left" || candidate == "trigger right";
+
+        if (trigger && !already_trigger)
+            candidate = source;
+
+        if (Clock::now() - first_press <
+            std::chrono::milliseconds(100))
+            return false;
+
+        input::PadBind(size_t(g_pad_capture.load()), candidate);
+        candidate.clear();
         g_pad_capture = -1;
         return true;
     }
+
+    candidate.clear();
     return false;
+}
+
+void rows::CancelBinding() {
+    g_capture = -1;
+    g_pad_capture = -1;
 }
 
 void rows::Defaults(int page) {

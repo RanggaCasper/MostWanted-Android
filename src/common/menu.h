@@ -32,6 +32,7 @@ const char* PageName(int page);  // as the panel's tab, untranslated
 std::string Label(const Row& r);                // translated
 std::string Value(const Row& r, int step = 0);  // as shown, stepped first; empty for a heading
 void Activate(const Row& r);  // a link opens; a bind row waits for its input, PollBinding takes it
+void CancelBinding();
 bool PollBinding();           // a bind row's wait took its input or gave up, once
 void Defaults(int page);
 
