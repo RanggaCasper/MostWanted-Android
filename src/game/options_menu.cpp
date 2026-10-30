@@ -1000,7 +1000,11 @@ void OptionsBindingFrame(X86Context& ctx) {
     const bool released =
         input::PressedPadInput().empty() && !input::PressedKey();
 
-    if (g_capture_drain.load() && released)
+    // an input that never reads released must not hold every input off: a capture still needs A seen up first
+    // (OptionsMenuPad's armed), so two seconds of drain is enough
+    static unsigned drain_frames = 0;
+    drain_frames = g_capture_drain.load() ? drain_frames + 1 : 0;
+    if (g_capture_drain.load() && (released || drain_frames > 120))
         g_capture_drain = false;
 
     const uint64_t request = g_capture_request.load();

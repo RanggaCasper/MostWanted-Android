@@ -764,9 +764,11 @@ std::string PressedPadInput() {
         for (int i = 0; i < SDL_GetNumJoystickAxes(joy); ++i) {
             Sint16 rest = 0;
             SDL_GetJoystickAxisInitialState(joy, i, &rest);
-            const int moved =
-                int(SDL_GetJoystickAxis(joy, i)) - int(rest);
-            if (std::abs(moved) > 20000)
+            // SDL takes an axis's first value for its rest, and on Android that is often taken mid-pull (the
+            // gas trigger in a race): far from zero too, or a released axis stays pressed for good
+            const int value = SDL_GetJoystickAxis(joy, i);
+            const int moved = value - int(rest);
+            if (std::abs(moved) > 20000 && std::abs(value) > 20000)
                 return SourceText({'a', i, moved > 0 ? 1 : -1});
         }
     }
