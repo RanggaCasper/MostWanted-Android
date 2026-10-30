@@ -867,6 +867,28 @@ size_t HitButton(float x, float y) {
     return kButtonCount;
 }
 
+// The steering arrows are one strip under the thumb, a racing game's: a finger down anywhere along it, the gap between
+// them too, takes the nearer arrow, and rolled across it steers the other way. Held to the arrow it came down on, a
+// thumb rolled from left to right still steered left until lifted, and one down in the gap steered nothing
+size_t SteerArrowAt(float x, float y) {
+    size_t left = kButtonCount, right = kButtonCount;
+    for (size_t i = 0; i < kButtonCount; i++) {
+        if (kButtons[i].press == kSteerLeft) left = i;
+        if (kButtons[i].press == kSteerRight) right = i;
+    }
+    if (left == kButtonCount || right == kButtonCount || !ButtonShown(left) || !ButtonShown(right)) return kButtonCount;
+    float lx, ly, rx, ry, lw, lh, rw, rh;
+    Centre(left, lx, ly);
+    Centre(right, rx, ry);
+    Extent(left, lw, lh);
+    Extent(right, rw, rh);
+    if (lx > rx) return kButtonCount;  // the editor put them the other way round: each its own button
+    constexpr float kSlack = 1.4f;  // the strip's reach past the arrows, in their half sizes
+    float hh = std::max(lh, rh) * kSlack, my = (ly + ry) / 2;
+    if (x < lx - lw * kSlack || x > rx + rw * kSlack || std::fabs(y - my) > hh + std::fabs(ly - ry) / 2) return kButtonCount;
+    return x - lx < rx - x ? left : right;
+}
+
 // a stick's deflection from where the finger came down, its radius the stick's
 void StickOf(const Finger& f, float& x, float& y, size_t stick = kStick) {
     float r = Radius(stick);
@@ -1120,6 +1142,7 @@ void FingerDown(SDL_FingerID id, float x, float y) {
     }
     input::g_touch = true;
     size_t b = HitButton(x, y);
+    if (b == kButtonCount) b = SteerArrowAt(x, y);
     if (b < kButtonCount && kButtons[b].press == kSteerWheel) {
         f.role = Role::Wheel;
         f.button = b;
@@ -1186,6 +1209,12 @@ void FingerMove(SDL_FingerID id, float x, float y) {
             }
         }
         if (f.role == Role::Stick) UpdateStick(f);
+        // a thumb rolled across the steering arrows steers the way it is now, the turn coming in again from the start
+        if (f.role == Role::Button && (kButtons[f.button].press == kSteerLeft || kButtons[f.button].press == kSteerRight))
+            if (size_t s = SteerArrowAt(x, y); s != kButtonCount && s != f.button) {
+                f.button = s;
+                f.down_ms = NowMs();
+            }
         // a menu prompting the right stick (the showcase turning the car, the map's cursor): a drag past a tap's reach
         // is the stick from where it came down
         if (f.role == Role::FeTap && std::hypot(f.x - f.x0, f.y - f.y0) >= kSwipe * Height()) f.role = Role::Look;
