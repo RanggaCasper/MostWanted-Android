@@ -84,10 +84,14 @@ uint32_t TargetData(uint32_t target) {
 }
 void ApplyGraphicsSwitches() {
     // HALF and QUARTER draw the cube every 2nd or 4th frame; between, the cars read the faces drawn last. OFF still
-    // draws it every 512th: a cube never drawn leaves the paint white, whatever native/vulkan.cpp binds for it
-    static uint32_t frame = 0;
+    // draws it every 512th: a cube never drawn leaves the paint white, whatever native/vulkan.cpp binds for it. Out of a
+    // race and in its first frames it is drawn every frame: a race's cube is new, and its cars stayed white until the
+    // count came round
+    constexpr uint32_t kRaceWarmup = 120;
+    static uint32_t frame = 0, racing = 0;
+    racing = Racing() ? racing + (racing < kRaceWarmup) : 0;
     uint32_t rate = Opt().reflections;
-    uint32_t every = rate < 3 ? 1u << rate : 512;
+    uint32_t every = racing < kRaceWarmup ? 1 : rate < 3 ? 1u << rate : 512;
     bool envmap = frame++ % every == 0;
     kernel::G<uint8_t>(kEnvMapSwitch) = envmap ? 1 : 0;
     kernel::G<uint8_t>(kParticleDrawSwitch) = Opt().particles ? 1 : 0;
