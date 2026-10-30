@@ -6,6 +6,8 @@
 #include <map>
 #include <string>
 
+struct X86Context;
+
 // the game's own settings, in the settings file through app::kGame.options
 namespace game {
 
@@ -65,5 +67,7 @@ void WidenAspect();         // src/game/game.cpp: game thread, at each present
 void ApplyGraphicsSwitches();  // src/game/game.cpp: game thread, at each present
 void ApplyCheats();            // src/game/game.cpp: game thread, at each present
 bool Racing();    // src/game/game.cpp, any thread: the game flow is in a race (free roam too), not loading or the front end
+inline std::atomic<bool> g_reset_car{false};  // native/touch.cpp's RESET, taken by ResetCarFrame
+void ResetCarFrame(X86Context& ctx);          // src/game/game.cpp: game thread, at each present
 
 }  // namespace game

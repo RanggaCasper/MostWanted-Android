@@ -838,6 +838,7 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
     game::WidenAspect();
     game::ApplyGraphicsSwitches();
     game::ApplyCheats();
+    game::ResetCarFrame(ctx);
     game::CaptureFont();
     game::FeFrame();
     game::OptionsBindingFrame(ctx);

@@ -395,7 +395,7 @@ enum class Role : uint8_t { None, Stick, Look, Button, Drag, Pinch, FeMouse, Whe
 
 // a control of the touch layout: what it shows and presses, on the controller (analog 0-7, button bits from 8) or on
 // the host. Where it sits is the layout's, which the player edits
-enum : int { kSteerWheel = -5, kSteerRight = -4, kSteerLeft = -3, kPanel = -1, kAnalogA = 0, kAnalogB = 1, kAnalogX = 2, kAnalogY = 3, kAnalogLT = 6, kAnalogRT = 7 };
+enum : int { kResetCar = -6, kSteerWheel = -5, kSteerRight = -4, kSteerLeft = -3, kPanel = -1, kAnalogA = 0, kAnalogB = 1, kAnalogX = 2, kAnalogY = 3, kAnalogLT = 6, kAnalogRT = 7 };
 constexpr int kBit = 8;  // kBit + n: buttons bit n (dpad up down left right, start, back, left thumb, right thumb)
 enum class Icon : uint8_t { Text, Pause, Gear, Back, Gyro, Up, Down, Left, Right, Wheel };
 // how a control is drawn and touched: a circle, a shoulder's tab, a small pill, the dpad's rounded square, a racing
@@ -434,6 +434,8 @@ constexpr Button kButtons[] = {
     {"steer_right", "Steer right", Icon::Right, kSteerRight, Shape::Square},
     // a steering wheel turned by a finger dragged round it; shown when STEERING is WHEEL
     {"wheel", "Wheel", Icon::Wheel, kSteerWheel, Shape::Round},
+    // the player's car put back on the road (src/game/game.cpp's ResetCarFrame): the console has no button for it
+    {"reset_car", "RESET", Icon::Text, kResetCar, Shape::Round},
 };
 constexpr size_t kButtonCount = std::size(kButtons);
 constexpr size_t kStick = kButtonCount;  // the sticks' places, after the buttons'
@@ -456,7 +458,7 @@ struct Place {
 };
 using Layout = std::array<Place, kPlaces>;
 // The layout's places, as the editor's reset puts them: a b x y, black white, lt rt, start back, the settings, the
-// dpad's up down left right, the steering arrows, the wheel, the left stick and the right stick.
+// dpad's up down left right, the steering arrows, the wheel, RESET, the left stick and the right stick.
 // As a mobile racing game: steering arrows under the left thumb, the gas and brake pedals (RT, LT) under the right,
 // Nitrous over the gas, the e-brake over the brake, Speedbreaker and Look Back near them; a small dpad for the menus
 // high on the left, Back, the settings and Start along the top, Black (the camera) in the top right corner, the gear
@@ -467,7 +469,7 @@ constexpr Layout kRacing = {{
     {0.765f, 0.85f, 0.085f}, {0.915f, 0.74f, 0.17f},
     {0.585f, 0.075f, 0.036f}, {0.415f, 0.075f, 0.036f}, {0.50f, 0.075f, 0.045f},
     {0.07f, 0.28f, 0.038f}, {0.07f, 0.46f, 0.038f}, {0.03f, 0.37f, 0.038f}, {0.11f, 0.37f, 0.038f},
-    {0.08f, 0.76f, 0.11f}, {0.25f, 0.76f, 0.11f}, {0.15f, 0.70f, 0.19f},
+    {0.08f, 0.76f, 0.11f}, {0.25f, 0.76f, 0.11f}, {0.15f, 0.70f, 0.19f}, {0.33f, 0.075f, 0.036f},
     {0.17f, 0.76f, 0.12f, true}, {0.55f, 0.80f, 0.10f},
 }};
 
@@ -714,7 +716,7 @@ Art g_art[] = {{"a", 1.0f},     {"b", 1.0f},     {"x", 1.0f},          {"y", 1.0
                {"lt", 0.698f},  {"rt", 1.2345f}, {"black", 1.0f},      {"start", 1.0f},
                {"back", 1.0f},  {"up", 1.0f},    {"down", 1.0f},       {"left", 1.0f},
                {"right", 1.0f}, {"wheel", 1.0f}, {"stick_ring", 1.0f}, {"stick_knob", 1.0f},
-               {"stick_shift", 1.66f}};
+               {"stick_shift", 1.66f}, {"reset_car", 1.0f}};  // reset_car: tools/reset_icon.py
 
 const Art* FindArt(std::string_view name) {
     for (const Art& a : g_art)
@@ -1164,6 +1166,7 @@ void FingerDown(SDL_FingerID id, float x, float y) {
                 app::ToggleMenu();
             }
         }
+        if (kButtons[b].press == kResetCar) game::g_reset_car = true;
     } else if (FeMenu() && game::CurrentFePrompts().right_stick) {
         f.role = Role::FeTap;  // FEng's pointer would click whatever the drag began on (the map's GPS)
     } else if (FeMenu()) {
