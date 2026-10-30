@@ -1128,6 +1128,8 @@ private:
     Target* FindTarget(const Surface& s, bool depth);
     float TargetScale(uint64_t key, uint32_t gw, uint32_t gh) const;
     Target* EnsureTarget(const Surface& s, bool depth);
+    Target* FrameRegion(const Surface& s, uint32_t& rows, uint32_t& sub_h);
+    Target* EnsureColor(const Surface& s, uint32_t& rows, uint32_t& sub_h);
     void ReleaseTarget(std::unordered_map<uint64_t, Target>::iterator it);
     void UploadTarget(Target& t, const Surface& s);
     bool PixelImage(Image& im, const std::vector<uint8_t>& px, uint32_t pitch, uint32_t w, uint32_t h);
@@ -1148,12 +1150,13 @@ private:
     VkImageView BindGuestTexture(const State& s, int stage, const TextureDesc& d, const FormatInfo& fi,
                                  DrawTextures& stages);
     VkImageView BindCubeTargets(int stage, const TextureDesc& d, DrawTextures& stages);
+    VkImageView BindFrameRegion(int stage, const TextureDesc& d, DrawTextures& stages);
     bool CreateTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, uint64_t key);
     void UploadTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, const uint8_t* p, const uint32_t* colours);
     void BuildPipelineKey(const State& s, const Assembled& a, const DrawShaders& sh, PsoKey& k);
     void KeyDepthStencil(const State& s, const Assembled& a, PsoKey& k);
     void ClearTarget(Target& t, const State& s, uint32_t count, const uint8_t* rects, uint32_t flags, uint32_t color,
-                     float z, uint32_t stencil);
+                     float z, uint32_t stencil, uint32_t rows = 0, uint32_t sub_h = 0);
 
     // present
     bool AcquireImage(uint32_t& index);
@@ -1256,8 +1259,10 @@ private:
     std::unordered_map<uint64_t, VkSampler> samplers_;
     std::unordered_map<uint64_t, Target> targets_;
     std::unordered_set<uint64_t> full_scale_;  // effect sized targets drawn with a frame sized one: at its scale
+    uint32_t presented_[4] = {};  // the frame buffers presented, their data: FrameRegion's parents
     std::unordered_map<uint64_t, Tex> textures_;
     std::unordered_map<uint32_t, CubeOfTargets> cubes_;
+    std::unordered_map<uint32_t, Image> regions_;  // a frame's rows read as a texture, by its data (BindFrameRegion)
     uint64_t view_gen_ = 1;  // image views destroyed so far (Frame::sets)
     // the last draw's keys, results and vertex constants: consecutive draws mostly share their shaders and pipeline,
     // and many their constants, so the hashing, the lookups and the 3 KB upload are skipped for them
@@ -2931,6 +2936,35 @@ Target* VulkanBackend::EnsureTarget(const Surface& s, bool depth) {
     return &ref;
 }
 
+// A colour surface over rows of a presented frame buffer, as wide and so of its pitch: split screen's halves, the top
+// one at the frame's own address and the bottom one 240 rows in, where each player's visual treatment is drawn. A
+// target of their own never reached the frame, and the top one, at the frame's key, made the frame again every frame
+// (black under the HUD). Drawn into the frame instead, rows down; sub_h is the surface's height
+Target* VulkanBackend::FrameRegion(const Surface& s, uint32_t& rows, uint32_t& sub_h) {
+    if (!s.header) return nullptr;
+    uint32_t data = mem::VirtualFromPhysical(s.data), gw, gh;
+    SurfaceSize(s, gw, gh);
+    for (uint32_t f : presented_) {
+        if (!f || data < f) continue;
+        auto it = targets_.find(TargetMapKey(f, false));
+        if (it == targets_.end()) continue;
+        Target& t = it->second;
+        uint32_t pitch = GuestPitch(gw), off = data - f;
+        if (t.gw != gw || gh >= t.gh || off % pitch || off / pitch + gh > t.gh) continue;
+        rows = off / pitch;
+        sub_h = gh;
+        return &t;
+    }
+    return nullptr;
+}
+
+// a colour target to draw or clear: a presented frame's rows (FrameRegion), else the surface's own
+Target* VulkanBackend::EnsureColor(const Surface& s, uint32_t& rows, uint32_t& sub_h) {
+    rows = sub_h = 0;
+    if (Target* t = FrameRegion(s, rows, sub_h)) return t;
+    return EnsureTarget(s, false);
+}
+
 // BGRA pixels into a new w x h image, left readable
 bool VulkanBackend::PixelImage(Image& im, const std::vector<uint8_t>& px, uint32_t pitch, uint32_t w, uint32_t h) {
     if (!CreateImage(im, kBgra, w, h, 1, 1, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -3283,6 +3317,8 @@ VkImageView VulkanBackend::BindTexture(const State& s, int stage, DrawTextures& 
     const FormatInfo& fi = Format(d.format);
     info.kind = TextureKind(d);
     info.rect = d.linear;
+    if (!d.cube && d.depth == 1 && !fi.compressed && !fi.depth)
+        if (VkImageView v = BindFrameRegion(stage, d, stages)) return v;
     auto tit = targets_.find(TargetMapKey(d.data, fi.depth));
     if (tit != targets_.end() && !d.cube && d.depth == 1 && !fi.compressed)
         return BindTargetTexture(s, stage, d, tit->second, true, stages);
@@ -3298,6 +3334,41 @@ VkImageView VulkanBackend::BindTexture(const State& s, int stage, DrawTextures& 
     if (tit != targets_.end() && d.cube && !fi.depth && !fi.compressed)
         if (VkImageView v = BindCubeTargets(stage, d, stages)) return v;
     return BindGuestTexture(s, stage, d, fi, stages);
+}
+
+// A presented frame's rows read as a texture of their own (FrameRegion's surfaces: split screen's visual treatment
+// reads each player's half of the frame): the top half has the frame's address and bound the whole frame, both views
+// squeezed into it, and the bottom one matched no target and read guest memory, black. Copied out of the frame, at
+// each bind as Feedback is, since the pass draws over the rows it reads
+VkImageView VulkanBackend::BindFrameRegion(int stage, const TextureDesc& d, DrawTextures& stages) {
+    for (uint32_t f : presented_) {
+        if (!f || d.data < f) continue;
+        auto it = targets_.find(TargetMapKey(f, false));
+        if (it == targets_.end()) continue;
+        Target& t = it->second;
+        uint32_t pitch = GuestPitch(d.width), off = d.data - f;
+        if (t.gw != d.width || d.height >= t.gh || off % pitch || off / pitch + d.height > t.gh) continue;
+        float sc = float(t.h) / t.gh;
+        uint32_t y = std::min(t.h - 1, uint32_t(std::lround(off / pitch * sc)));
+        uint32_t h = std::clamp(uint32_t(std::lround(d.height * sc)), 1u, t.h - y);
+        Image& im = regions_[d.data];
+        if (im && (im.w != t.w || im.h != h || im.fmt != t.img.fmt)) Retire(im);
+        if (!im && !CreateImage(im, t.img.fmt, t.w, h, 1, 1, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                                VK_IMAGE_VIEW_TYPE_2D))
+            return VK_NULL_HANDLE;
+        Transition(t.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        Transition(im, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkImageCopy c{{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {0, int32_t(y), 0}, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                      {0, 0, 0}, {t.w, h, 1}};
+        vkCmdCopyImage(Cb(), t.img.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, im.image,
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+        Transition(im, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        stages.rt[stage] = true;
+        stages.info[stage].kind = kTex2D;
+        stages.fmt[stage] = im.fmt;
+        return im.view;
+    }
+    return VK_NULL_HANDLE;
 }
 
 // a cube drawn face by face as six targets: guest memory never sees those draws, so the faces are copied into a cube
@@ -3401,7 +3472,8 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     if (!Assemble(s, prim, start, count, indices, a)) return;
 
     // the targets, CPU writes to them first
-    Target* rt = EnsureTarget(s.rt, false);
+    uint32_t rows, sub_h;
+    Target* rt = EnsureColor(s.rt, rows, sub_h);
     Target* ds = s.rs[kRsZEnable] || s.rs[kRsStencilEnable] ? EnsureTarget(s.zs, true) : nullptr;
     // the zeta has a pitch of its own: a depth buffer wider than the target (Most Wanted's is the multisampled 1280x480
     // under its 640x480 frame) serves its top left corner; one smaller cannot
@@ -3419,12 +3491,13 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
                   su.data, depth_smaller ? "target" : "depth");
         full_scale_.insert(key);
         ReleaseTarget(targets_.find(key));
-        rt = EnsureTarget(s.rt, false);
+        rt = EnsureColor(s.rt, rows, sub_h);
         ds = EnsureTarget(s.zs, true);
         if (rt && ds && (rt->w > ds->w || rt->h > ds->h)) ds = nullptr;
     }
     if (!rt && !ds) return;
-    if (rt && LatchCpuWrite(*rt)) UploadTarget(*rt, s.rt);
+    // a frame's rows: the CPU's pixels are the frame's, its own upload
+    if (rt && !sub_h && LatchCpuWrite(*rt)) UploadTarget(*rt, s.rt);
     draw_rt_ = rt;
     draw_ds_ = ds;
 
@@ -3538,8 +3611,11 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
     BindSet(set, vc.off, dc.off);
     Target& bt = draw_rt_ ? *draw_rt_ : *draw_ds_;
     float W = float(bt.w), H = float(bt.h);
-    SetViewport(0, 0, W, H);
     float sc = W / size.w;
+    // a frame's rows (FrameRegion): the surface's picture goes on them, clipped to them
+    bool sub = draw_rt_ && sub_h;
+    float oy = sub ? rows * sc : 0.0f;
+    SetViewport(0, oy, W, sub ? sub_h * sc : H);
     int32_t x0 = int32_t(s.viewport.x * sc), y0 = int32_t(s.viewport.y * sc);
     int32_t x1 = int32_t((s.viewport.x + s.viewport.w) * sc), y1 = int32_t((s.viewport.y + s.viewport.h) * sc);
     if (s.scissor_count) {
@@ -3547,6 +3623,10 @@ void VulkanBackend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t
         y0 = std::max(y0, int32_t(s.scissors[1] * sc));
         x1 = std::min(x1, int32_t(s.scissors[2] * sc));
         y1 = std::min(y1, int32_t(s.scissors[3] * sc));
+    }
+    if (sub) {
+        y0 = std::max(y0, 0) + int32_t(oy);
+        y1 = std::min(y1 + int32_t(oy), int32_t(oy + sub_h * sc));
     }
     SetScissor(std::clamp(x0, 0, int32_t(W)), std::clamp(y0, 0, int32_t(H)), std::clamp(x1, 0, int32_t(W)),
                std::clamp(y1, 0, int32_t(H)));
@@ -3571,20 +3651,26 @@ VkRect2D ScaledRect(const Target& t, int x0, int y0, int x1, int y1) {
 }
 
 void VulkanBackend::ClearTarget(Target& t, const State& s, uint32_t count, const uint8_t* rects, uint32_t flags,
-                                uint32_t color, float z, uint32_t stencil) {
+                                uint32_t color, float z, uint32_t stencil, uint32_t rows, uint32_t sub_h) {
     std::vector<VkClearRect> rs;
-    auto add = [&](const VkRect2D& r) {
+    // a frame's rows (FrameRegion): the surface's rects moved onto them, clipped to them
+    auto add = [&](int x0, int y0, int x1, int y1) {
+        if (sub_h) {
+            y0 = std::max(y0, 0) + int(rows);
+            y1 = std::min(y1, int(sub_h)) + int(rows);
+        }
+        VkRect2D r = ScaledRect(t, x0, y0, x1, y1);
         if (r.extent.width && r.extent.height) rs.push_back({r, 0, 1});
     };
     if (count && rects) {
         for (uint32_t i = 0; i < count; i++) {
             int32_t r[4];
             std::memcpy(r, rects + size_t(i) * sizeof(r), sizeof(r));
-            add(ScaledRect(t, r[0], r[1], r[2], r[3]));
+            add(r[0], r[1], r[2], r[3]);
         }
     } else {
         const auto& v = s.viewport;
-        add(ScaledRect(t, int(v.x), int(v.y), int(v.x + v.w), int(v.y + v.h)));
+        add(int(v.x), int(v.y), int(v.x + v.w), int(v.y + v.h));
     }
     t.drawn = true, t.writes++;
     if (rs.empty()) return;
@@ -3596,7 +3682,7 @@ void VulkanBackend::ClearTarget(Target& t, const State& s, uint32_t count, const
         ca.clearValue.depthStencil = {std::clamp(z, 0.0f, 1.0f), stencil & 0xFF};
     } else {
         // pixels the CPU wrote before this clear go in first, a later upload would paint over the clear
-        if (LatchCpuWrite(t)) UploadTarget(t, s.rt);
+        if (!sub_h && LatchCpuWrite(t)) UploadTarget(t, s.rt);
         ca.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         Color(color, ca.clearValue.color.float32);
     }
@@ -3624,10 +3710,11 @@ void VulkanBackend::ClearTarget(Target& t, const State& s, uint32_t count, const
 void VulkanBackend::Clear(const State& s, uint32_t count, const uint8_t* rects, uint32_t flags, uint32_t color,
                           float z, uint32_t stencil) {
     if (gpu_failed_) return;
-    Target* rt = (flags & kClearTarget) ? EnsureTarget(s.rt, false) : nullptr;
+    uint32_t rows = 0, sub_h = 0;
+    Target* rt = (flags & kClearTarget) ? EnsureColor(s.rt, rows, sub_h) : nullptr;
     Target* ds = (flags & (kClearZ | kClearStencil)) ? EnsureTarget(s.zs, true) : nullptr;
-    for (Target* t : {rt, ds})
-        if (t) ClearTarget(*t, s, count, rects, flags, color, z, stencil);
+    if (rt) ClearTarget(*rt, s, count, rects, flags, color, z, stencil, rows, sub_h);
+    if (ds) ClearTarget(*ds, s, count, rects, flags, color, z, stencil);
 }
 
 void VulkanBackend::Copy(const Surface& src, const Surface& dst, uint32_t count, uint32_t src_rects,
@@ -3990,6 +4077,8 @@ void VulkanBackend::ApplySettings() {
     targets_.clear();
     for (auto& [data, c] : cubes_) Retire(c.img);
     cubes_.clear();
+    for (auto& [data, im] : regions_) Retire(im);
+    regions_.clear();
     full_scale_.clear();
     draw_rt_ = draw_ds_ = nullptr;
     scale_ = want;
@@ -4015,6 +4104,10 @@ void VulkanBackend::SavePipelineCache() {
 void VulkanBackend::Present(const Surface& front) {
     if (gpu_failed_) return;
     Target* t = EnsureTarget(front, false);
+    if (t && std::find(std::begin(presented_), std::end(presented_), t->data) == std::end(presented_)) {
+        std::move_backward(std::begin(presented_), std::end(presented_) - 1, std::end(presented_));
+        presented_[0] = t->data;
+    }
     if (t && LatchCpuWrite(*t)) UploadTarget(*t, front);
     if (ramp_dirty_) UploadGammaRamp();
     if (gpu_failed_) return;
