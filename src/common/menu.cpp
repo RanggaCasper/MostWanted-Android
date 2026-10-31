@@ -93,9 +93,9 @@ constexpr uint32_t kScreenFilters[] = {0, 1, 2, 3, 4, 5};
 const char* const kScreenFilterNames[] = {"OFF", "SHARPEN", "VIVID", "SCANLINES", "CRT", "HDR"};
 constexpr uint32_t kAntiAliasings[] = {game::kAaOff, game::kAaFxaa, game::kAaSsaa};
 const char* const kAntiAliasingNames[] = {"OFF", "FXAA", "SSAA 2X"};
-// Options::reflections: how often the cars' reflection is drawn
+// Options::reflections: how much of the cars' reflection is drawn, its cube's texels (native/vulkan.cpp)
 constexpr uint32_t kReflectionRates[] = {0, 1, 2, 3};
-const char* const kReflectionRateNames[] = {"FULL", "HALF", "QUARTER", "OFF"};
+const char* const kReflectionRateNames[] = {"FULL", "HALF", "LOW", "OFF"};
 // the counter's place on the screen, Options::fps_position; top centre is under the settings gear
 enum FpsPosition : uint32_t { kFpsTop, kFpsTopLeft, kFpsTopRight, kFpsBottomLeft, kFpsBottom, kFpsBottomRight };
 constexpr uint32_t kFpsPositions[] = {kFpsTop, kFpsTopLeft, kFpsTopRight, kFpsBottomLeft, kFpsBottom, kFpsBottomRight};

@@ -26,21 +26,22 @@ struct Options {
     uint32_t fps_position = 0;  // the counter's place, src/common/menu.cpp's kFpsPositionNames
     bool fps_usage = true;      // the counter's CPU and GPU load
     bool fps_temps = true;      // the counter's CPU, GPU and battery temperatures
-    uint32_t screen_filter = 0;  // the present's look: 0 none, 1 sharpen, 2 vivid, 3 scanlines, 4 CRT, 5 HDR
+    uint32_t screen_filter = 5;  // the present's look: 0 none, 1 sharpen, 2 vivid, 3 scanlines, 4 CRT, 5 HDR (default)
     uint32_t anti_aliasing = 0;  // kAaOff, kAaFxaa or kAaSsaa
     uint32_t aspect_ratio = 0;  // the frame's shape in hundredths (133 is 4:3), 0 the whole screen; common/aspect.h
     bool bloom = true;  // the glow added over the frame, native/vulkan.cpp skips it when off
     bool fog = true;    // the distance fog, native/vulkan.cpp draws without it when off
-    // the cars' reflection, six more views: drawn every frame (0), every 2nd (1), every 4th (2) or off (3, a grey
-    // cube read instead); src/game/game.cpp's ApplyGraphicsSwitches
-    uint32_t reflections = 2;  // mobile default: update the six-face car reflection every fourth frame
+    // the cars' reflection, six more views: their cube's texels whole (0), half (1), a quarter (2) or off (3, a grey
+    // cube read instead); native/vulkan.cpp's BindCubeTargets, and src/game/game.cpp's ApplyGraphicsSwitches draws
+    // the views every frame, every 2nd or every 4th
+    uint32_t reflections = 0;
     bool particles = true;    // tyre smoke, sparks and crash debris, the same
     bool shadows = true;      // the shadows under the cars, the same; the trees' and buildings', native/vulkan.cpp
     bool road_reflections = true;  // the wet road's reflection, the same
     bool rain = true;         // the falling rain, src/game/game.cpp
     bool rain_drops = true;   // the drops on the screen in the rain, the same
     bool yellow_tint = false;  // the game's yellow colour grading, src/game/game.cpp greys it when off
-    bool shader_preload = false;  // native/vulkan.cpp makes earlier runs' shaders and pipelines at the start
+    bool shader_preload = true;  // native/vulkan.cpp makes earlier runs' shaders and pipelines at the start
     bool motion_blur = true;   // the blur by speed and the nitrous' radial blur, src/game/game.cpp skips them when off
     // cheats, src/game/game.cpp's ApplyCheats
     bool cheat_nos = false;           // the nitrous never runs out

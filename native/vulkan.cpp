@@ -526,6 +526,7 @@ struct Target {
 // a cube whose faces are targets (Most Wanted's car reflection, six 128x128 faces drawn each frame), copied together
 struct CubeOfTargets {
     Image img;
+    Image face;               // one downscaled face, drawn then copied into img's layer (CAR REFLECTIONS below FULL)
     uint64_t writes[6] = {};  // each face's Target::writes when last copied
 };
 
@@ -1169,9 +1170,7 @@ private:
     // SHADER PRELOADING
     void LoadPreloadList();
     void StartPreload();
-    void Preload(std::vector<std::pair<uint64_t, uint64_t>> shaders, std::vector<PsoKey> pipes,
-                 std::unordered_map<uint64_t, VkRenderPass> passes);
-    bool TakePreloadedShader(uint64_t key, uint64_t& hash, VkShaderModule& module);
+    void PreloadStep();
     void Record(uint32_t tag, const void* data, size_t size);
 
     VkInstance instance_ = VK_NULL_HANDLE;
@@ -1229,19 +1228,19 @@ private:
     VkPipelineCache cache_ = VK_NULL_HANDLE;
     size_t cache_saved_ = 0;
     // Shader preloading: the shaders (their key to their source's hash) and pipelines (their keys) drawn with in earlier
-    // runs, listed in shadercache/preload.bin as they are first made. With SHADER PRELOADING on, a thread of its own
-    // makes them all from the cached SPIR-V once the game starts, and the render thread takes them as it meets them
-    // instead of making them mid-race (what stutters). The list is kept whether it is on or not
+    // runs, listed in shadercache/preload.bin as they are first made. With SHADER PRELOADING on, the render thread
+    // makes them from the cached SPIR-V a few a frame from the first one, so a draw meeting one already has it instead
+    // of compiling mid-race (what stutters). The list is kept whether it is on or not
     std::vector<std::pair<uint64_t, uint64_t>> listed_shaders_;
     std::vector<PsoKey> listed_pipes_;
     std::unordered_set<uint64_t> listed_;  // the shaders' keys and the pipelines' hashes in the list
     std::ofstream list_;
     bool preload_started_ = false;
-    std::mutex pre_lock_;  // the preload thread's, below
-    std::unordered_map<uint64_t, uint64_t> pre_shaders_;  // a shader's key to its source's hash, its module made
-    std::unordered_map<uint64_t, VkShaderModule> pre_modules_;
-    std::unordered_map<uint64_t, VkPipeline> pre_pipes_;
-    std::unordered_set<uint64_t> pre_claimed_;  // pipelines the render thread made itself first
+    // what the preload has still to make, on the render thread a few a frame so the frames keep coming: the shaders
+    // as their key and source hash, the pipelines as their key and the pass they need, none with dynamic rendering
+    std::vector<std::pair<uint64_t, uint64_t>> todo_shaders_;
+    std::vector<std::pair<PsoKey, VkRenderPass>> todo_pipes_;
+    bool shaders_left_ = true;  // the lists are not done: one line when they are
     VkSemaphore timeline_ = VK_NULL_HANDLE;
     std::atomic<uint64_t> value_{0};
     Frame frames_[kFrames];
@@ -1343,6 +1342,8 @@ bool VulkanBackend::Init(uint32_t width, uint32_t height) {
     scale_ = app::RenderScale(guest_h_);
     LOGI("vulkan: %ux%u guest, %ux%u screen, render scale %.3f", width, height, swap_extent_.width,
          swap_extent_.height, scale_);
+    // the shaders and pipelines earlier runs drew with: made a few a frame from the first one, from the cached SPIR-V
+    if (game::Opt().shader_preload) StartPreload();
     return true;
 }
 
@@ -2549,11 +2550,6 @@ constexpr uint32_t kListShader = 1, kListPipeline = 2;  // a record's tag: a sha
 VkPipeline VulkanBackend::EnsurePipeline(const PsoKey& k, VkShaderModule vs, VkShaderModule ps) {
     uint64_t h = Hash(&k, sizeof(k));
     if (auto it = pipelines_.find(h); it != pipelines_.end()) return it->second;
-    {
-        std::lock_guard lock(pre_lock_);
-        if (auto it = pre_pipes_.find(h); it != pre_pipes_.end()) return pipelines_[h] = it->second;
-        pre_claimed_.insert(h);
-    }
     auto t = std::chrono::steady_clock::now();
     VkPipeline pipe = BuildPipeline(k, vs, ps, PipelinePass(k));
     if (!pipe) LOGE("vulkan: pipeline creation failed");
@@ -2580,18 +2576,20 @@ VkPipeline VulkanBackend::BuildPipeline(const PsoKey& k, VkShaderModule vs, VkSh
     st[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
     st[1].module = ps;
     st[1].pName = "main";
-    // the attributes at their register's location, as vk_shader.cpp numbers the inputs
+    // the attributes at their register's location, as vk_shader.cpp numbers the inputs; a key off the list is written
+    // back to BuildPipeline as it was read, so its counts are held to the arrays' size first
     VkVertexInputBindingDescription vb[16];
     VkVertexInputAttributeDescription va[16];
+    uint32_t buffers = std::min(k.buffers, 16u);
     uint32_t na = 0;
-    for (uint32_t i = 0; i < k.buffers; i++) vb[i] = {i, k.strides[i], VK_VERTEX_INPUT_RATE_VERTEX};
+    for (uint32_t i = 0; i < buffers; i++) vb[i] = {i, k.strides[i], VK_VERTEX_INPUT_RATE_VERTEX};
     for (uint32_t r = 0; r < 16; r++) {
         if (!((k.regs >> r) & 1)) continue;
         uint32_t e = k.elements[r];
         va[na++] = {r, (e >> 8) & 0xFF, VertexFormat(e & 0xFF), e >> 16};
     }
     VkPipelineVertexInputStateCreateInfo vi{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vi.vertexBindingDescriptionCount = k.buffers;
+    vi.vertexBindingDescriptionCount = buffers;
     vi.pVertexBindingDescriptions = vb;
     vi.vertexAttributeDescriptionCount = na;
     vi.pVertexAttributeDescriptions = va;
@@ -2670,7 +2668,7 @@ std::filesystem::path PreloadListPath() { return app::ExeDir() / "shadercache" /
 void VulkanBackend::LoadPreloadList() {
     const uint32_t header[4] = {kListMagic, kListVersion, uint32_t(sizeof(PsoKey)), 0};
     std::filesystem::path p = PreloadListPath();
-    bool fresh = true;
+    bool fresh = true, cut = false;
     if (std::ifstream f{p, std::ios::binary}) {
         uint32_t h[4] = {};
         if (f.read(reinterpret_cast<char*>(h), sizeof(h)) && !std::memcmp(h, header, sizeof(h))) {
@@ -2679,15 +2677,25 @@ void VulkanBackend::LoadPreloadList() {
             while (f.read(reinterpret_cast<char*>(&tag), 4)) {
                 if (tag == kListShader) {
                     uint64_t rec[2];
-                    if (!f.read(reinterpret_cast<char*>(rec), sizeof(rec))) break;
+                    if (!f.read(reinterpret_cast<char*>(rec), sizeof(rec))) { cut = true; break; }
                     if (listed_.insert(rec[0]).second) listed_shaders_.emplace_back(rec[0], rec[1]);
                 } else if (tag == kListPipeline) {
                     PsoKey k;
-                    if (!f.read(reinterpret_cast<char*>(&k), sizeof(k))) break;
+                    if (!f.read(reinterpret_cast<char*>(&k), sizeof(k))) { cut = true; break; }
+                    // a key of another build's driver or its own array sizes is not one to make: it is dropped
+                    if (k.buffers > 16) continue;
                     if (listed_.insert(Hash(&k, sizeof(k))).second) listed_pipes_.push_back(k);
                 } else {
-                    break;  // a record cut short by the app's end: the rest is written again as it is met
+                    cut = true;
+                    break;
                 }
+            }
+            // the app was killed mid-record: what follows the cut would never be read again, so the file is written
+            // again whole, from what was read
+            if (cut) {
+                std::error_code ec;
+                std::filesystem::remove(p, ec);
+                fresh = true;
             }
         }
     }
@@ -2696,6 +2704,8 @@ void VulkanBackend::LoadPreloadList() {
         std::filesystem::create_directories(p.parent_path(), ec);
         list_.open(p, std::ios::binary | std::ios::trunc);
         list_.write(reinterpret_cast<const char*>(header), sizeof(header));
+        for (const auto& rec : listed_shaders_) Record(kListShader, &rec, sizeof(rec));
+        for (const PsoKey& k : listed_pipes_) Record(kListPipeline, &k, sizeof(k));
     } else {
         list_.open(p, std::ios::binary | std::ios::app);
     }
@@ -2711,83 +2721,66 @@ void VulkanBackend::Record(uint32_t tag, const void* data, size_t size) {
     list_.flush();
 }
 
-// the preload thread's module for a shader's key, now the render thread's
-bool VulkanBackend::TakePreloadedShader(uint64_t key, uint64_t& hash, VkShaderModule& module) {
-    std::lock_guard lock(pre_lock_);
-    auto it = pre_shaders_.find(key);
-    if (it == pre_shaders_.end()) return false;
-    hash = it->second;
-    VkShaderModule& m = modules_[hash];
-    if (!m) m = pre_modules_[hash];
-    module = m;
-    return module != VK_NULL_HANDLE;
-}
-
-// render thread, once SHADER PRELOADING is on: the render passes the listed pipelines need, made here as Pass is the
-// render thread's, then the thread that makes the rest
+// at Init: the listed pipelines' render passes, made here as Pass is the render thread's, and the lists become the
+// work the frames do a little of
 void VulkanBackend::StartPreload() {
     preload_started_ = true;
-    if (listed_shaders_.empty() && listed_pipes_.empty()) return;
-    std::unordered_map<uint64_t, VkRenderPass> passes;
-    for (const PsoKey& k : listed_pipes_) {
-        uint64_t key = uint64_t(k.has_rt ? k.rtfmt : 0) << 1 | (k.has_ds ? 1 : 0);
-        if (!passes.count(key)) passes[key] = PipelinePass(k);
-    }
-    std::thread([this, shaders = listed_shaders_, pipes = listed_pipes_, passes = std::move(passes)]() mutable {
-        Preload(std::move(shaders), std::move(pipes), std::move(passes));
-    }).detach();
+    // the step takes from the back: the list is in the order the runs met them, so it goes in backwards and the last
+    // run's last draws, the ones a race starts with, are made first
+    for (auto it = listed_pipes_.rbegin(); it != listed_pipes_.rend(); ++it)
+        todo_pipes_.emplace_back(*it, PipelinePass(*it));
+    todo_shaders_.assign(listed_shaders_.rbegin(), listed_shaders_.rend());
     listed_shaders_.clear();
     listed_pipes_.clear();
+    shaders_left_ = !todo_shaders_.empty() || !todo_pipes_.empty();
+    LOGR("vulkan: preloading %zu shaders and %zu pipelines", todo_shaders_.size(), todo_pipes_.size());
 }
 
-// the preload thread: the shaders' modules from the cached SPIR-V, then the pipelines; one the render thread made
-// first is skipped, and one it makes meanwhile wins over this thread's
-void VulkanBackend::Preload(std::vector<std::pair<uint64_t, uint64_t>> shaders, std::vector<PsoKey> pipes,
-                            std::unordered_map<uint64_t, VkRenderPass> passes) {
-    auto t = std::chrono::steady_clock::now();
-    std::unordered_map<uint64_t, VkShaderModule> modules;
-    auto module = [&](uint64_t hash) {
-        if (auto it = modules.find(hash); it != modules.end()) return it->second;
+// render thread, each present while there is work: a few shaders a frame, from the SPIR-V the last run cached, and
+// then the pipelines. All of them made on the render thread, a few a frame: a thread of its own made them beside the
+// draws, and a device is not shared between threads for creation (the intermittent crash this replaces)
+void VulkanBackend::PreloadStep() {
+    size_t kShadersPerFrame = 16, kPipesPerFrame = 8;
+    size_t made = 0;
+    while (made < kShadersPerFrame && !todo_shaders_.empty()) {
+        auto [key, hash] = todo_shaders_.back();
+        todo_shaders_.pop_back();
+        if (modules_.count(hash)) continue;
         std::vector<uint32_t> spirv;
+        if (!vkshader::Cached(hash, spirv)) continue;
+        VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        ci.codeSize = spirv.size() * 4;
+        ci.pCode = spirv.data();
         VkShaderModule m = VK_NULL_HANDLE;
-        if (vkshader::Cached(hash, spirv)) {
-            VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-            ci.codeSize = spirv.size() * 4;
-            ci.pCode = spirv.data();
-            if (vkCreateShaderModule(dev_, &ci, nullptr, &m) != VK_SUCCESS) m = VK_NULL_HANDLE;
-        }
-        return modules[hash] = m;
-    };
-    size_t made_shaders = 0, made_pipes = 0;
-    for (const auto& [key, hash] : shaders) {
-        VkShaderModule m = module(hash);
-        if (!m) continue;
-        std::lock_guard lock(pre_lock_);
-        pre_modules_.emplace(hash, m);
-        pre_shaders_.emplace(key, hash);
-        made_shaders++;
+        if (vkCreateShaderModule(dev_, &ci, nullptr, &m) != VK_SUCCESS) continue;
+        modules_[hash] = m;
+        shader_src_[key] = hash;
+        made++;
     }
-    for (const PsoKey& k : pipes) {
+    // a pipeline waits in the list until both its shaders are here: popping it early would drop it for the run
+    made = 0;
+    for (size_t i = 0; i < todo_pipes_.size() && made < kPipesPerFrame;) {
+        auto [k, pass] = todo_pipes_[i];
         uint64_t h = Hash(&k, sizeof(k));
-        {
-            std::lock_guard lock(pre_lock_);
-            if (pre_claimed_.count(h)) continue;
-        }
-        VkShaderModule vs = module(k.vs), ps = module(k.ps);
-        if (!vs || !ps) continue;
-        uint64_t pass = uint64_t(k.has_rt ? k.rtfmt : 0) << 1 | (k.has_ds ? 1 : 0);
-        VkPipeline pipe = BuildPipeline(k, vs, ps, passes[pass]);
-        if (!pipe) continue;
-        std::lock_guard lock(pre_lock_);
-        if (pre_claimed_.count(h)) {
-            vkDestroyPipeline(dev_, pipe, nullptr);
+        if (pipelines_.count(h)) {
+            todo_pipes_.erase(todo_pipes_.begin() + i);
             continue;
         }
-        pre_pipes_[h] = pipe;
-        made_pipes++;
+        auto vs = modules_.find(k.vs), ps = modules_.find(k.ps);
+        if (vs == modules_.end() || ps == modules_.end() || !vs->second || !ps->second) {
+            i++;
+            continue;
+        }
+        todo_pipes_.erase(todo_pipes_.begin() + i);
+        if (VkPipeline pipe = BuildPipeline(k, vs->second, ps->second, pass)) {
+            pipelines_[h] = pipe;
+            made++;
+        }
     }
-    LOGR("vulkan: preloaded %zu shaders and %zu pipelines in %.1f s", made_shaders, made_pipes,
-         double(SinceNs(t)) / 1e9);
+    if (shaders_left_ && todo_shaders_.empty() && todo_pipes_.empty()) {
+        shaders_left_ = false;
+        LOGR("vulkan: preloaded every listed shader and pipeline");
+    }
 }
 
 VkSampler VulkanBackend::Sampler(const VkSamplerCreateInfo& ci) {
@@ -3117,10 +3110,6 @@ void VulkanBackend::EnsureVertexShader(const State& s, const Assembled& a, DrawS
         sh.vs = modules_[sh.vh];
         return;
     }
-    if (TakePreloadedShader(sh.vkey, sh.vh, sh.vs)) {
-        shader_src_[sh.vkey] = sh.vh;
-        return;
-    }
     std::string src = VertexHlsl(s, a, sh);
     const char* entry = "main";
     if (a.topology == Topology::Points) {
@@ -3145,10 +3134,6 @@ void VulkanBackend::EnsurePixelShader(const PixelKey& pk, DrawShaders& sh) {
         return;
     }
     uint64_t key = sh.pkey ^ kPixelKeySalt;
-    if (TakePreloadedShader(key, sh.ph, sh.ps)) {
-        shader_src_[key] = sh.ph;
-        return;
-    }
     sh.ps = Module(PixelHlsl(pk), "main", vkshader::Stage::Pixel, sh.ph);
     shader_src_[key] = sh.ph;
     if (sh.ps && listed_.insert(key).second) {
@@ -3382,12 +3367,26 @@ VkImageView VulkanBackend::BindCubeTargets(int stage, const TextureDesc& d, Draw
         if (faces[f]->w != faces[0]->w || faces[f]->h != faces[0]->h) return VK_NULL_HANDLE;
     }
     CubeOfTargets& c = cubes_[d.data];
-    uint32_t w = faces[0]->w, h = faces[0]->h;
-    if (!c.img || c.img.w != w || c.img.h != h) {
+    // CAR REFLECTIONS: the faces are cut to FULL, a half, a quarter or an eighth of their texels. src/game/game.cpp
+    // draws them every frame, every 2nd, every 4th or not at all, and a cadence alone is invisible at frame rate: the
+    // paint's blur is what a lower setting shows (the game has no quality of its own, one byte throws the six views
+    // away). a downscaled face is drawn into a face sized target the way Shrink draws one, not blitted: vkCmdBlitImage
+    // on B8G8R8A8 needs the format's blit and linear filter features, and a GPU without them took the device down
+    uint32_t div = 1u << (game::Opt().reflections == 2 ? 3 : std::min<uint32_t>(game::Opt().reflections, 2));
+    uint32_t w = faces[0]->w, h = faces[0]->h, cw = std::max(1u, w / div), ch = std::max(1u, h / div);
+    if (!c.img || c.img.w != cw || c.img.h != ch) {
         Retire(c.img);
+        Retire(c.face);
         c = CubeOfTargets{};
-        if (!CreateImage(c.img, kBgra, w, h, 1, 6, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        if (!CreateImage(c.img, kBgra, cw, ch, 1, 6, 1, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                          VK_IMAGE_VIEW_TYPE_CUBE, true)) {
+            cubes_.erase(d.data);
+            return VK_NULL_HANDLE;
+        }
+        if (!CreateImage(c.face, kBgra, cw, ch, 1, 1, 1,
+                         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, VK_IMAGE_VIEW_TYPE_2D)) {
+            Retire(c.img);
+            c = CubeOfTargets{};
             cubes_.erase(d.data);
             return VK_NULL_HANDLE;
         }
@@ -3396,10 +3395,18 @@ VkImageView VulkanBackend::BindCubeTargets(int stage, const TextureDesc& d, Draw
     for (uint32_t f = 0; f < 6; f++) {
         Target& t = *faces[f];
         if (c.writes[f] == t.writes) continue;
-        Transition(t.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        Image* src = &t.img;
+        if (cw != w || ch != h) {
+            // the face into its own small target, then that target's texels into the cube's layer
+            float uv[4] = {0, 0, 1, 1};
+            Blit(c.face, {{0, 0}, {cw, ch}}, t.img, uv, {.alpha = true});
+            src = &c.face;
+        }
+        Transition(*src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         Transition(c.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        VkImageCopy r{{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {0, 0, 0}, {VK_IMAGE_ASPECT_COLOR_BIT, 0, f, 1}, {0, 0, 0}, {w, h, 1}};
-        vkCmdCopyImage(Cb(), t.img.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, c.img.image,
+        VkImageCopy r{{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {0, 0, 0}, {VK_IMAGE_ASPECT_COLOR_BIT, 0, f, 1}, {0, 0, 0},
+                      {cw, ch, 1}};
+        vkCmdCopyImage(Cb(), src->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, c.img.image,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &r);
         c.writes[f] = t.writes;
     }
@@ -4195,7 +4202,9 @@ void VulkanBackend::Present(const Surface& front) {
         gpu_ns_ = 0;
     }
     if (presents_ % 600 == 0) SavePipelineCache();
+    // turned on in the menu since the boot: the rest of this run is what it then makes
     if (!preload_started_ && game::Opt().shader_preload) StartPreload();
+    if (preload_started_) PreloadStep();
     ApplySettings();
 }
 
