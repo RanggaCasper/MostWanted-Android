@@ -35,7 +35,6 @@ import org.libsdl.app.SDLControllerManager;
 // (/storage/emulated/0/MostWanted) or at the top of an SD card. Reading it needs all files access, a special access Android grants on a settings page
 // of its own, never among the app's ordinary permissions. This asks for it and says where the game goes, each time
 // the app comes back without them; the game itself waits and starts as soon as it finds the files.
-// At launch it also asks GitHub for a newer release (UpdateChecker) and tells of it once nothing else is asked.
 public class MostWantedActivity extends SDLActivity {
     static final String SHARED = "MostWanted";
 
@@ -65,12 +64,6 @@ public class MostWantedActivity extends SDLActivity {
             if (v != null) v.setOnCapturedPointerListener(MostWantedActivity::onCapturedPointer);
         File own = getExternalFilesDir(null);
         if (own != null) new File(own, "assets").mkdirs();
-        // every launch: a newer release is shown once nothing else is asked
-        UpdateChecker.check(this, false, (r, failed) -> {
-            if (r == null) return;
-            update = r;
-            tellOfUpdate();
-        });
     }
 
     // A controller some phones' game services pass on as a virtual device (MIUI's took a DualShock 4 on a Redmi Note
