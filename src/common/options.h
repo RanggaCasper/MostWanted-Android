@@ -7,6 +7,9 @@
 #include <string>
 
 struct X86Context;
+namespace input {
+struct Pad;
+}
 
 // the game's own settings, in the settings file through app::kGame.options
 namespace game {
@@ -72,5 +75,10 @@ bool Racing();    // src/game/game.cpp, any thread: the game flow is in a race (
 inline std::atomic<bool> g_reset_car{false};  // native/touch.cpp's RESET, taken by ResetCarFrame
 void ResetCarFrame(X86Context& ctx);          // src/game/game.cpp: game thread, at each present
 void DragShiftFrame(X86Context& ctx);   // src/game/game.cpp: game thread, at each present
+// cinematic mode (src/game/cinematic.cpp): the pause menu's icon asks for it, the next frame enters
+void CinematicRequest(bool from_pause_menu = false);  // from the menu: leaving opens the pause menu again
+bool CinematicActive();
+bool CinematicPad(int port, const input::Pad& pad);  // the pad filter: true while the camera has the pad
+void DrawCinematicHud();                             // inside the ImGui frame: the controls' panel, X toggles it
 
 }  // namespace game

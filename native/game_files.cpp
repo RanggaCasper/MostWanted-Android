@@ -1,7 +1,10 @@
 // The game on Android: its files or a disc image (.iso) in the MostWanted folder on the phone's storage or on an SD
-// card (all files access granted) or in the app's own assets folder. The xbe must be the one this build was recompiled
-// from: the disc's USA and Europe releases share it.
+// card (all files access granted) or in the app's own assets folder. On Linux: in an assets or iso folder beside the
+// executable or in any folder above it (the build output is under the repo, whose assets the build took the xbe from).
+// The xbe must be the one this build was recompiled from: the disc's USA and Europe releases share it.
+#ifdef __ANDROID__
 #include <jni.h>
+#endif
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_system.h>
@@ -26,6 +29,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
+#ifdef __ANDROID__
 // host::kShared: the files or the image in it, or in its assets folder
 using host::kShared;
 constexpr const char* kVolumes = "/storage";
@@ -90,6 +94,35 @@ std::vector<fs::path> AssetFolders() {
     out.push_back(ExeDir() / "assets");
     return out;
 }
+#else
+// assets and iso beside the executable and in each folder above it, then the working folder's
+std::vector<fs::path> AssetFolders() {
+    std::vector<fs::path> out;
+    std::error_code ec;
+    for (fs::path dir = ExeDir();; dir = dir.parent_path()) {
+        out.push_back(dir / "assets");
+        out.push_back(dir / "iso");
+        if (!dir.has_parent_path() || dir.parent_path() == dir) break;
+    }
+    fs::path cwd = fs::current_path(ec);
+    if (!ec) {
+        out.push_back(cwd / "assets");
+        out.push_back(cwd);
+    }
+    return out;
+}
+#endif
+
+// the disc's data folder, NFS (ZDIR.BIN and ZZDATA*.BIN), in any case: a copy off a FAT card may be lower case
+bool HasGameData(const fs::path& dir) {
+    std::error_code ec;
+    for (auto& e : fs::directory_iterator(dir, ec)) {
+        std::string name = e.path().filename().string();
+        std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return char(std::toupper(c)); });
+        if (name == "NFS" && e.is_directory(ec)) return true;
+    }
+    return false;
+}
 
 std::string Sha1(const std::vector<uint8_t>& data) {
     alignas(8) uint8_t ctx[128];
@@ -153,6 +186,7 @@ void CheckImage(const kernel::Disc& disc, const fs::path& iso) {
              iso.string().c_str(), past, (unsigned long long)size, first.c_str());
 }
 
+#ifdef __ANDROID__
 // no game yet: the activity's dialog tells the player where it goes and asks for the access; this waits a moment
 // before looking again, keeping SDL's events moving
 void WaitForGame() {
@@ -176,6 +210,7 @@ void WaitForGame() {
         SDL_Delay(100);
     }
 }
+#endif
 
 bool AskOtherRelease(const fs::path& name) {
     std::string text = name.filename().string() + " " +
@@ -222,7 +257,11 @@ int Search(GameFiles& game) {
     for (const fs::path& assets : AssetFolders()) {
         if (!fs::is_directory(assets, ec)) continue;
         std::vector<uint8_t> xbe;
-        if (ReadHostFile(assets / IMAGE_XBE, xbe) && consider(assets, assets, std::move(xbe), nullptr)) return 1;
+        // the extracted files: the xbe with the game's data beside it. An xbe alone (build.sh and build.bat take
+        // it out of the image into assets) is not the game: the image beside it is
+        if (HasGameData(assets) && ReadHostFile(assets / IMAGE_XBE, xbe) &&
+            consider(assets, assets, std::move(xbe), nullptr))
+            return 1;
         std::vector<fs::path> isos;
         for (auto& e : fs::directory_iterator(assets, ec)) {
             std::string ext = e.path().extension().string();
@@ -256,11 +295,25 @@ int Search(GameFiles& game) {
 }  // namespace
 
 bool FindGame(GameFiles& game) {
+#ifdef __ANDROID__
     for (;;) {
         int found = Search(game);
         if (found) return found > 0;
         WaitForGame();
     }
+#else
+    // a PC says where the game goes and ends: there is no activity to come back from
+    int found = Search(game);
+    if (found) return found > 0;
+    std::string where = (ExeDir() / "assets").string();
+    LOGE("game: no %s nor a disc image (.iso) with it in any assets folder from %s up", IMAGE_XBE, ExeDir().c_str());
+    std::string text = app::Ui("Put the game in the assets folder first: its files, or its disc image (.iso), from the "
+                               "USA release.",
+                               false) +
+                       "\n\n" + where;
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, Utf8(kGame.short_title).c_str(), text.c_str(), nullptr);
+    return false;
+#endif
 }
 
 }  // namespace app

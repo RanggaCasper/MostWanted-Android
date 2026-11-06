@@ -89,7 +89,12 @@ void OnEvent(const SDL_Event& e) {
         case SDL_EVENT_MOUSE_MOTION:
             if (e.motion.which == SDL_TOUCH_MOUSEID) break;
             io.AddMouseSourceEvent(ImGuiMouseSource_Mouse);
-            io.AddMousePosEvent(e.motion.x, e.motion.y);
+            // window units to the pixels ImGui is drawn in: 1 on a phone, 2 on a HiDPI desktop
+            {
+                float density = host::Window() ? SDL_GetWindowPixelDensity(host::Window()) : 1.0f;
+                if (density <= 0) density = 1.0f;
+                io.AddMousePosEvent(e.motion.x * density, e.motion.y * density);
+            }
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
         case SDL_EVENT_MOUSE_BUTTON_UP:

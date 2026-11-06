@@ -1,11 +1,15 @@
 // The performance overlay's numbers (src/common/menu.cpp): CPU and GPU load and the temperatures. An app may not
 // read every source Android has, and which it may differs by maker and version: each number falls back to what it
 // can read, and is -1 when nothing tells it
+#ifdef __ANDROID__
 #include <jni.h>
+#endif
 #include <unistd.h>
 
 #include <SDL3/SDL.h>
+#ifdef __ANDROID__
 #include <SDL3/SDL_system.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -117,6 +121,9 @@ float Hottest(const std::vector<std::string>& paths) {
 }
 
 float BatteryTemperature() {
+#ifndef __ANDROID__
+    return -1;  // a PC: no battery worth showing
+#else
     auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
     auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
     if (!env || !activity) return -1;
@@ -130,6 +137,7 @@ float BatteryTemperature() {
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
     return tenths > 0 ? float(tenths) / 10.0f : -1;
+#endif
 }
 
 }  // namespace

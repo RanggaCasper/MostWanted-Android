@@ -4,7 +4,9 @@
 // CONTROLLER page's bindings (common/pad_binds.h) go over SDL's mapping.
 #include "core/input.h"
 
+#ifdef __ANDROID__
 #include <jni.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -480,6 +482,7 @@ void ApplyBinds(SDL_Gamepad* pad, Pad& p,
 
 }  // namespace
 
+#ifdef __ANDROID__
 // MostWantedActivity: the loose controller's buttons, sticks and triggers, and its letting go when the app loses the focus
 extern "C" JNIEXPORT void JNICALL Java_com_racas_mostwanted_MostWantedActivity_nativeLooseKey(JNIEnv*, jclass, jint code,
                                                                                      jboolean down) {
@@ -506,6 +509,7 @@ extern "C" JNIEXPORT void JNICALL Java_com_racas_mostwanted_MostWantedActivity_n
     g_loose = {};
     g_loose.seen = seen;
 }
+#endif  // __ANDROID__
 
 void SetPadMenuMode(bool menu) {
     g_pad_menu_mode.store(menu, std::memory_order_relaxed);

@@ -19,7 +19,8 @@ void Pad(int port, input::Pad& pad) {
     const bool panel = app::MenuOpen();
     if (!panel && port == 0) input::Keyboard(pad);
     const bool consumed = OptionsMenuPad(port, pad);
-    if (panel || consumed)
+    const bool camera = !panel && CinematicPad(port, pad);
+    if (panel || consumed || camera)
         pad = input::Pad{.connected = pad.connected};
 }
 

@@ -107,6 +107,9 @@ X86_FUNC(sub_00124B50) {
     uint32_t hash = ctx.edx;
     const char* text = game::OwnString(hash);
     for (const game::Prompt& p : game::kPrompts) {
+#ifndef __ANDROID__
+        break;  // a PC: the game's own "Press START", for its keyboard and controllers
+#endif
         if (text) break;
         if (p.hash != hash) continue;
         if (!p.front_end || !game::Racing()) text = p.text[game::LanguageIndex()];

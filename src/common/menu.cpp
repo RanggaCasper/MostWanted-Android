@@ -1105,6 +1105,7 @@ void DrawFpsCounter(double fps) {
 
 void DrawUi(double fps) {
     DrawFpsCounter(fps);
+    game::DrawCinematicHud();
     ImGuiIO& io = ImGui::GetIO();
     if (MenuOpen()) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
     else io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;

@@ -95,6 +95,16 @@ adb install -r app/build/outputs/apk/release/app-release.apk
 
 SDK disertakan di `sdk/`, pada commit upstream yang tercatat di `sdk/UPSTREAM_COMMIT`, dengan satu perubahan: bahasa konsol diambil dari `app::ConsoleLanguage()` (`sdk/runtime/kernel/xboxkrnl.cpp`).
 
+## Linux
+Game ini juga bisa dibangun dan dijalankan secara native di Linux (x86-64) dari sumber yang sama: renderer Vulkan, suara, controller, dan pengaturannya sama dengan versi Android, dengan jendela desktop sebagai pengganti layar HP. Versi Linux dibangun dari sumber.
+
+- Kebutuhan: distribusi 64-bit dengan driver Vulkan 1.1 (Mesa atau NVIDIA), serta Clang, CMake, Ninja, Git, pkg-config, Python 3, dan loader serta header Vulkan. SDL3 diambil dari sistem bila versinya 3.2 atau lebih baru, jika tidak akan diunduh dan dibangun sekalian. `build.sh` menampilkan daftar paket untuk Arch, Debian/Ubuntu, dan Fedora bila ada yang kurang.
+- Taruh `default.xbe` beserta file game, atau image disc (`.iso`), di `assets/`, lalu jalankan `./build.sh` (`./build.sh debug` untuk baris info di log). Skrip ini membangun recompiler, merekompilasi xbe ke `generated/game`, lalu membangun `out/build/linux/mostwanted`. Build pertama mengompilasi seluruh game dan memakan waktu 15 sampai 60 menit.
+- Jalankan `out/build/linux/mostwanted`. Game dicari di folder `assets` atau `iso` di samping executable atau di folder mana pun di atasnya, jadi folder `assets` milik repo langsung bisa dipakai.
+- Pengaturan (`mostwanted.toml`, `android.toml`, `layout.toml`), save (`hdd`), log, dan cache shader ditulis di samping executable.
+- Keyboard, mouse (di panel pengaturan), dan controller lewat SDL3, di Wayland atau X11. F10 membuka panel pengaturan, F11 atau Alt+Enter beralih antara jendela dan layar penuh. `display_mode` (`fullscreen`, `borderless`, `windowed`) beserta `width` dan `height` di `mostwanted.toml` mengatur jendela.
+- Menu game menampilkan LINUX OPTIONS sebagai pengganti ANDROID OPTIONS. Kontrol sentuh hanya muncul di layar sentuh, setelah layarnya disentuh.
+
 ## Kredit
 - [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) oleh TGP482: recompiler statis dan runtime portabel (kernel Xbox, library XDK, dan Direct3D 8) yang menjadi dasar port ini.
 - [Black-Android](https://github.com/RanggaCasper/Black-Android) dan [ShaolinMonks-Android](https://github.com/RanggaCasper/ShaolinMonks-Android) oleh RanggaCasper: host Android yang menjadi dasar port ini.

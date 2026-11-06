@@ -46,7 +46,11 @@ namespace {
 std::atomic<uint64_t> g_capture_ms{0};  // PressedKey
 std::atomic<bool> g_settle{false};
 std::atomic<bool> g_keyboard{false};  // the keyboard or mouse used last
+#ifdef __ANDROID__
 std::atomic<bool> g_touch{true};      // the touch controls used last, not a controller or the keys
+#else
+std::atomic<bool> g_touch{false};     // a PC starts on its keyboard and controllers
+#endif
 constexpr uint64_t kTapMs = 80;
 constexpr uint64_t kCaptureMs = 250;  // PressedKey asked this recently: a key capture is up
 // The wheel binds as two keys, codes no key has. A notch holds what is bound to it for one tap.
@@ -1496,7 +1500,12 @@ void Apply(int port, input::Pad& pad) {
     if (used) pad.connected = true;
 }
 
+#ifdef __ANDROID__
 bool Shown() { return !PadPlugged() || NowMs() - g_touch_ms < kShownMs; }
+#else
+// a PC plays on its keyboard and controllers: the controls only on a touch screen, a while after it is touched
+bool Shown() { return g_touch_ms && NowMs() - g_touch_ms < kShownMs; }
+#endif
 
 namespace {
 

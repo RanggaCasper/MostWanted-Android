@@ -1,11 +1,15 @@
-// The options menu's update check: MostWantedActivity asks GitHub and shows the answer in a dialog of its own
+// The options menu's update check: on Android MostWantedActivity asks GitHub and shows the answer in a dialog of its
+// own; a PC build is built from source, so the releases page opens in the browser
+#ifdef __ANDROID__
 #include <jni.h>
+#endif
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_system.h>
 
 namespace host {
 
+#ifdef __ANDROID__
 // a no-argument void method of the activity; any thread, SDL attaches it to the VM
 static void CallActivity(const char* name) {
     auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
@@ -20,5 +24,8 @@ static void CallActivity(const char* name) {
 }
 
 void CheckForUpdates() { CallActivity("checkForUpdates"); }
+#else
+void CheckForUpdates() { SDL_OpenURL("https://github.com/RanggaCasper/MostWanted-Android/releases/latest"); }
+#endif
 
 }  // namespace host
