@@ -79,6 +79,7 @@ void DragShiftFrame(X86Context& ctx);   // src/game/game.cpp: game thread, at ea
 void CinematicRequest(bool from_pause_menu = false);  // from the menu: leaving opens the pause menu again
 bool CinematicActive();
 bool CinematicPad(int port, const input::Pad& pad);  // the pad filter: true while the camera has the pad
-void DrawCinematicHud();                             // inside the ImGui frame: the controls' panel, X toggles it
+void DrawCinematicHud();                             // inside the ImGui frame: its menu, Start shows and hides it
+bool CinematicMenuHit(float x, float y);             // screen pixels on its menu: the touch controls leave them
 
 }  // namespace game
