@@ -25,6 +25,9 @@
 
 # runtime files
 mostwanted.toml
+android.toml
+layout.toml
+/shadercache/
 /logs/
 /hdd/
 /CrashDumps/

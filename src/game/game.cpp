@@ -16,11 +16,26 @@
 namespace game {
 
 // The console's widescreen flag (XGetVideoFlags at boot, 0x0D0202, kept at 0x48099C; set from 3:2 on, native/main.cpp)
-// gives the front end's and HUD's screen transform (0x0D4888, 0x0D8330: 576 / width across, 448 / 480 down) a frame
+// gives the front end's and HUD's screen transform (0x0D4888, 0x0D8330: 576 / width across, 448 / 480 down, made 640
+// and 480 below) a frame
 // 853 wide (480 * 16 / 9, at 0x427C00) for a 4:3 one's 640. It is the frame's own shape here, so 19.5:9 is not 16:9
 // stretched
 constexpr uint32_t kVideoFlags = 0x48099C, kWideWidth = 0x427C00;
+// The 576 and 448 (0x3D3534, 0x3D3530, read only by those two transforms) are the console's title safe area, the
+// 640x480 layout drawn 0.9 across and 0.93 down for a TV's overscan: the front end, its movies and loading screens
+// had a black border on a screen that shows the whole frame. 640 and 480 draw the layout over the whole frame, as
+// the PC's did; fe_mouse.cpp reads them back for its hit tests
+constexpr uint32_t kSafeWidth = 0x3D3534, kSafeHeight = 0x3D3530;
+void FullFrameFrontEnd() {
+    constexpr float kWidth = 640.0f, kHeight = 480.0f;
+    uint32_t w, h;
+    std::memcpy(&w, &kWidth, 4);
+    std::memcpy(&h, &kHeight, 4);
+    kernel::W32(kSafeWidth, w);
+    kernel::W32(kSafeHeight, h);
+}
 void WidenAspect() {
+    FullFrameFrontEnd();
     if (!(kernel::G<uint8_t>(kVideoFlags) & 1)) return;
     float w = 480.0f * Aspect();
     uint32_t bits;
@@ -264,7 +279,8 @@ X86_FUNC(sub_000C1BD0) {
 // returns false itself (0x0D1661): MOTION BLUR off returns so at once
 X86_EXTERN_FUNC(__imp__sub_000D1440);
 X86_FUNC(sub_000D1440) {
-    if (game::Opt().motion_blur) return __imp__sub_000D1440(ctx, base);
+    // and none while cinematic mode flies the camera: its moves are no speed of the car's
+    if (game::Opt().motion_blur && !game::CinematicActive()) return __imp__sub_000D1440(ctx, base);
     ctx.eax &= ~0xFFu;
     ctx.esp += 4;
 }

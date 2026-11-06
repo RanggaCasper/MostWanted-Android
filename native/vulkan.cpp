@@ -1369,11 +1369,13 @@ bool VulkanBackend::CreateSurface() {
     uint32_t epoch = host::SurfaceEpoch();
     // Android has not handed the window back yet (resuming, or a surface change): wait for it without asking SDL,
     // which only fails, and log the outage once, not every present
+#ifdef __ANDROID__
     SDL_PropertiesID props = SDL_GetWindowProperties(host::Window());
     if (!SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr)) {
         if (surface_failures_++ == 0) LOGI("vulkan: waiting for Android's window");
         return false;
     }
+#endif
     if (!SDL_Vulkan_CreateSurface(host::Window(), instance_, nullptr, &surface_)) {
         surface_ = VK_NULL_HANDLE;
         if (surface_failures_++ == 0) LOGE("vulkan: no surface: %s", SDL_GetError());
@@ -1395,6 +1397,20 @@ bool VulkanBackend::PickDevice() {
     vkEnumeratePhysicalDevices(instance_, &n, nullptr);
     std::vector<VkPhysicalDevice> pds(n);
     vkEnumeratePhysicalDevices(instance_, &n, pds.data());
+#ifndef __ANDROID__
+    // a PC with two GPUs: the discrete one first, the integrated after (llvmpipe last)
+    auto rank = [](VkPhysicalDevice pd) {
+        VkPhysicalDeviceProperties p;
+        vkGetPhysicalDeviceProperties(pd, &p);
+        switch (p.deviceType) {
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return 0;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return 1;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU: return 3;
+            default: return 2;
+        }
+    };
+    std::stable_sort(pds.begin(), pds.end(), [&](VkPhysicalDevice a, VkPhysicalDevice b) { return rank(a) < rank(b); });
+#endif
     // rejections are reported, not warned: release logs drop warnings and these are what a bug report needs
     if (pds.empty()) LOGE("vulkan: the driver lists no GPU");
     for (VkPhysicalDevice pd : pds) {
@@ -1560,6 +1576,15 @@ bool VulkanBackend::CreateSwapchain() {
         w = int(caps.currentExtent.width);
         h = int(caps.currentExtent.height);
     }
+#ifndef __ANDROID__
+    // X11 and most desktop drivers fix the extent to the window's; Wayland leaves it to the app (0xFFFFFFFF)
+    if (caps.currentExtent.width != 0xFFFFFFFFu) {
+        w = int(caps.currentExtent.width);
+        h = int(caps.currentExtent.height);
+    }
+    w = std::clamp(w, int(caps.minImageExtent.width), int(std::max(caps.maxImageExtent.width, 1u)));
+    h = std::clamp(h, int(caps.minImageExtent.height), int(std::max(caps.maxImageExtent.height, 1u)));
+#endif
     if (w <= 0 || h <= 0) return false;
     vsync_ = app::Get().vsync;
     uint32_t pn = 0;
