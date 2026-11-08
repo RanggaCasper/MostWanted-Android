@@ -1,6 +1,7 @@
 #pragma once
 // What the Android host's parts share: the window, the app's lifecycle and the event routing
 #include <cstdint>
+#include <filesystem>
 
 union SDL_Event;
 struct SDL_Window;
@@ -25,6 +26,12 @@ void WaitForeground();
 void WindowPixels(int& w, int& h);
 
 }  // namespace host
+
+// the saves checked as the game checks them, backed up when good and put back from a backup when a write was cut short
+// (saves.cpp); before the game boots
+namespace saves {
+void Guard(const std::filesystem::path& hdd);
+}
 
 // controllers through SDL (input.cpp): the main thread hands over their plug events
 namespace input {

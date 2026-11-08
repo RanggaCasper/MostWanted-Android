@@ -448,6 +448,7 @@ int main(int, char**) {
     if (app::kGame.window) app::kGame.window(g_window);
     std::filesystem::path hdd = HddDir();
     LOGR("app: saves in %s", hdd.c_str());
+    saves::Guard(hdd);
     // what tools/car_mod.py wrote is read instead of the disc's files
     std::filesystem::path mods = std::filesystem::path(host::kShared) / "mods";
     std::error_code mods_ec;
