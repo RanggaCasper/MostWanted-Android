@@ -361,7 +361,8 @@ public class ModsActivity extends Activity {
     }
 
     private View packRow(TexturePacks.Kept pack) {
-        String sub = getString(R.string.mods_texture_pack, pack.count) + (pack.author.isEmpty() ? "" : " · " + pack.author);
+        String sub = getString(R.string.mods_texture_pack, pack.count) + " · " + pack.size + " px"
+                + (pack.author.isEmpty() ? "" : " · " + pack.author);
         return modRow(pack.name, sub, () -> askRemove(getString(R.string.mods_remove_pack_text, pack.name), () -> removePack(pack)));
     }
 
@@ -587,6 +588,7 @@ public class ModsActivity extends Activity {
                 error = getString(R.string.mods_error, String.valueOf(e.getMessage()));
             }
             String why = error;
+            boolean pack = why == null && !cancelled && ModArchive.isTexturePack(file);
             runOnUiThread(() -> {
                 if (isDestroyed()) return;
                 dialog.dismiss();
@@ -595,9 +597,34 @@ public class ModsActivity extends Activity {
                     if (why != null) tell(R.string.mods_failed, why);
                     return;
                 }
-                confirm(name, file);
+                if (pack) chooseResolution(name, file);
+                else confirm(name, file);
             });
         }, "ModRead").start();
+    }
+
+    // a texture pack's images are kept at most this size; the game's TEXTURE RESOLUTION picks up to it. Bigger is
+    // sharper, and more storage and GPU memory
+    private void chooseResolution(String name, File file) {
+        int[] sizes = TexturePacks.SIZES;
+        String[] labels = new String[sizes.length];
+        int[] notes = {R.string.mods_res_small, R.string.mods_res_recommended, R.string.mods_res_large, R.string.mods_res_huge};
+        int chosen = 1;
+        for (int i = 0; i < sizes.length; i++) {
+            labels[i] = sizes[i] + " px — " + getString(notes[i]);
+            if (sizes[i] == TexturePacks.max) chosen = i;
+        }
+        int[] pick = {chosen};
+        dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.mods_res_title)
+                .setSingleChoiceItems(labels, chosen, (d, w) -> pick[0] = w)
+                .setCancelable(false)
+                .setPositiveButton(R.string.mods_next, (d, w) -> {
+                    TexturePacks.max = sizes[pick[0]];
+                    confirm(name, file);
+                })
+                .setNegativeButton(android.R.string.cancel, (d, w) -> file.delete())
+                .show();
     }
 
     // what the install is about to do, said once before anything changes

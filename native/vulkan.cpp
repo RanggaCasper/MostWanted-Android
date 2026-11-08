@@ -384,10 +384,11 @@ struct RepImage {
     size_t bytes = 0;
 };
 
-// a DDS of DXT1, DXT3, DXT5 or 32 bit BGRA, its mips as many as it has; a GPU with no BC gets it decoded and at most
-// kNoBcMax texels across, four times the memory per texel
-std::unique_ptr<RepImage> ReadRepImage(const std::string& path, bool bc) {
+// a DDS of DXT1, DXT3, DXT5 or 32 bit BGRA, its mips as many as it has, from the first at most cap texels across
+// (TEXTURE RESOLUTION); a GPU with no BC gets it decoded and at most kNoBcMax across, four times the memory per texel
+std::unique_ptr<RepImage> ReadRepImage(const std::string& path, bool bc, uint32_t cap) {
     constexpr uint32_t kNoBcMax = 512;
+    const uint32_t limit = bc ? cap : std::min(cap, kNoBcMax);
     std::ifstream f(path, std::ios::binary);
     std::vector<uint8_t> file((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     auto u32 = [&](size_t o) {
@@ -422,7 +423,7 @@ std::unique_ptr<RepImage> ReadRepImage(const std::string& path, bool bc) {
     for (uint32_t l = 0; l < mips; l++, lw = std::max(1u, lw / 2), lh = std::max(1u, lh / 2)) {
         size_t n = level_size(lw, lh);
         if (at + n > file.size()) break;
-        bool skip = !bc && std::max(lw, lh) > kNoBcMax && l + 1 < mips;
+        bool skip = std::max(lw, lh) > limit && l + 1 < mips;
         if (!skip) {
             if (im->levels.empty()) im->w = lw, im->h = lh;
             std::vector<uint8_t> px(file.begin() + long(at), file.begin() + long(at + n));
@@ -446,18 +447,26 @@ std::unique_ptr<RepImage> ReadRepImage(const std::string& path, bool bc) {
     return im;
 }
 
+struct RepJob {
+    uint32_t hash;
+    bool bc;       // the GPU has BC
+    uint32_t cap;  // at most this many texels across
+};
+
 struct RepLoader {
     std::mutex lock;
     std::condition_variable wake;
-    std::deque<std::pair<uint32_t, bool>> queue;  // hash, the GPU has BC
+    std::deque<RepJob> queue;
     std::unordered_set<uint32_t> asked, bad;
     std::unordered_map<uint32_t, std::unique_ptr<RepImage>> ready;
+    std::unordered_map<uint32_t, uint32_t> ready_cap;  // the cap each ready image was made at
     std::deque<uint32_t> ready_order;
     size_t ready_bytes = 0;
     bool started = false;
 
-    // its image if it is ready, else asked for and null till it is; a file that will not read is not asked again
-    std::unique_ptr<RepImage> Take(uint32_t hash, bool bc) {
+    // its image if it is ready, else asked for and null till it is; a file that will not read is not asked again. One
+    // made at another cap (TEXTURE RESOLUTION changed while it was read) is made again
+    std::unique_ptr<RepImage> Take(uint32_t hash, bool bc, uint32_t cap) {
         std::lock_guard<std::mutex> g(lock);
         auto it = ready.find(hash);
         if (it != ready.end()) {
@@ -465,10 +474,12 @@ struct RepLoader {
             ready.erase(it);
             ready_bytes -= im->bytes;
             asked.erase(hash);
-            return im;
+            bool same = ready_cap[hash] == cap;
+            ready_cap.erase(hash);
+            if (same) return im;
         }
         if (bad.count(hash) || !asked.insert(hash).second) return nullptr;
-        queue.emplace_back(hash, bc);
+        queue.push_back({hash, bc, cap});
         if (!started) {
             started = true;
             std::thread([this] { Run(); }).detach();
@@ -481,25 +492,26 @@ struct RepLoader {
         pthread_setname_np(pthread_self(), "TexPacks");
         constexpr size_t kReadyMax = 96u << 20;  // made and not taken yet: a texture streamed out again before its draw
         for (;;) {
-            std::pair<uint32_t, bool> job;
+            RepJob job;
             {
                 std::unique_lock<std::mutex> g(lock);
                 wake.wait(g, [&] { return !queue.empty(); });
                 job = queue.front();
                 queue.pop_front();
             }
-            std::string path = texpacks::PathOf(job.first);
-            std::unique_ptr<RepImage> im = path.empty() ? nullptr : ReadRepImage(path, job.second);
+            std::string path = texpacks::PathOf(job.hash);
+            std::unique_ptr<RepImage> im = path.empty() ? nullptr : ReadRepImage(path, job.bc, job.cap);
             std::lock_guard<std::mutex> g(lock);
             if (!im) {
                 LOGW("texpacks: %s would not read", path.c_str());
-                bad.insert(job.first);
-                asked.erase(job.first);
+                bad.insert(job.hash);
+                asked.erase(job.hash);
                 continue;
             }
             ready_bytes += im->bytes;
-            ready[job.first] = std::move(im);
-            ready_order.push_back(job.first);
+            ready[job.hash] = std::move(im);
+            ready_cap[job.hash] = job.cap;
+            ready_order.push_back(job.hash);
             while (ready_bytes > kReadyMax && !ready_order.empty()) {
                 uint32_t old = ready_order.front();
                 ready_order.pop_front();
@@ -507,6 +519,7 @@ struct RepLoader {
                 if (it == ready.end()) continue;
                 ready_bytes -= it->second->bytes;
                 ready.erase(it);
+                ready_cap.erase(old);
                 asked.erase(old);
             }
             if (ready_order.size() > ready.size() * 2 + 64) {  // taken ones' leftovers
@@ -1437,6 +1450,7 @@ private:
     // the texture packs' textures the game has in memory, by their data (texpacks::Snapshot, once a frame)
     std::unordered_map<uint32_t, texpacks::Bound> rep_bound_;
     uint64_t rep_gen_ = 0, rep_frame_ = ~0ull;
+    uint32_t rep_cap_ = 0;  // TEXTURE RESOLUTION's cap the images bound now were made at
     VkDeviceSize rep_budget_ = 0;  // the packs' bytes uploaded this frame
     std::unordered_map<uint32_t, CubeOfTargets> cubes_;
     std::unordered_map<uint32_t, Image> regions_;  // a frame's rows read as a texture, by its data (BindFrameRegion)
@@ -3516,6 +3530,20 @@ VkImageView VulkanBackend::BindReplacement(int stage, const TextureDesc& d, uint
         rep_frame_ = presents_;
         rep_budget_ = 0;
         if (texpacks::Generation() != rep_gen_) texpacks::Snapshot(rep_bound_, rep_gen_);
+        // TEXTURE RESOLUTION changed: every pack image goes, and each is read again at the new size at its next draw
+        uint32_t cap = game::Opt().texture_resolution ? game::Opt().texture_resolution : 16384;
+        if (cap != rep_cap_) {
+            if (rep_cap_)
+                for (auto it = textures_.begin(); it != textures_.end();) {
+                    if (it->second.replaced) {
+                        Retire(it->second.img);
+                        it = textures_.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            rep_cap_ = cap;
+        }
     }
     if (rep_bound_.empty() || d.cube || d.depth != 1 || d.linear) return VK_NULL_HANDLE;
     auto it = rep_bound_.find(d.data);
@@ -3526,7 +3554,7 @@ VkImageView VulkanBackend::BindReplacement(int stage, const TextureDesc& d, uint
     if (!t) {
         constexpr VkDeviceSize kFrameBudget = 24ull << 20;
         if (rep_budget_ >= kFrameBudget) return VK_NULL_HANDLE;
-        std::unique_ptr<RepImage> im = Reps().Take(hash, bc_);
+        std::unique_ptr<RepImage> im = Reps().Take(hash, bc_, rep_cap_);
         if (!im) return VK_NULL_HANDLE;
         Tex& tx = textures_[key];
         Retire(tx.img);

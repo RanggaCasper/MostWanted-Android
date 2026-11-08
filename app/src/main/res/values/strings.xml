@@ -93,6 +93,12 @@
     <string name="mods_bad_archive">This archive can\'t be opened here (%1$s). ZIP, 7z and RAR can.</string>
     <string name="mods_too_big">This car is too large to convert on this phone.</string>
     <string name="mods_error">It failed: %1$s</string>
+    <string name="mods_res_title">Texture resolution</string>
+    <string name="mods_res_small">smallest, for older phones</string>
+    <string name="mods_res_recommended">recommended</string>
+    <string name="mods_res_large">sharper, about twice the storage</string>
+    <string name="mods_res_huge">sharpest, very large, a lot of GPU memory</string>
+    <string name="mods_next">Next</string>
     <string name="mods_texture_pack">Texture pack · %1$d textures</string>
     <string name="mods_reading_files">Reading the archive… %1$s files</string>
     <string name="mods_remove_pack_text">Remove %1$s? The game\'s own textures come back.</string>

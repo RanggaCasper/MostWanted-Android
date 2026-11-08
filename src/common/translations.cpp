@@ -48,6 +48,8 @@ constexpr Entry kEntries[] = {
     {"FALLING RAIN", {u"Pluie", u"Regen", u"Pioggia", u"Lluvia", u"Hujan turun"}},
     {"SCREEN RAINDROPS", {u"Gouttes de pluie à l'écran", u"Regentropfen auf dem Bildschirm", u"Gocce di pioggia sullo schermo", u"Gotas de lluvia en pantalla", u"Tetes hujan di layar"}},
     {"SHADER PRELOADING", {u"Préchargement des shaders", u"Shader vorladen", u"Precaricamento shader", u"Precarga de shaders", u"Muat shader di awal"}},
+    {"TEXTURE RESOLUTION", {u"Résolution des textures", u"Texturauflösung", u"Risoluzione texture", u"Resolución de texturas", u"Resolusi tekstur"}},
+    {"MAX", {u"Max", u"Max", u"Max", u"Máx", u"Maks"}},
     {"TEXTURE PACKS", {u"Packs de textures", u"Texturpakete", u"Pacchetti texture", u"Paquetes de texturas", u"Paket tekstur"}},
     {"MOTION BLUR", {u"Flou de mouvement", u"Bewegungsunschärfe", u"Sfocatura di movimento", u"Desenfoque de movimiento", u"Blur gerakan"}},
     {"YELLOW TINT", {u"Teinte jaune", u"Gelbstich", u"Tinta gialla", u"Tinte amarillo", u"Filter kuning"}},

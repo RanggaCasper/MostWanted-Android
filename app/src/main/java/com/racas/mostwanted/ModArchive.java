@@ -31,7 +31,9 @@ final class ModArchive {
         }
     }
 
-    private static final int MAX_FILE = 256 << 20, MAX_ALL = 1 << 30;
+    private static final int MAX_FILE = 256 << 20;
+    // what is kept of an archive, spooled to the cache: a texture pack kept at 4096 is over a gigabyte
+    private static final long MAX_ALL = 8L << 30, ROOM = 256L << 20;
     private static final int SEVEN_Z_MEMORY_KB = 256 << 10;
     private static java.util.function.Consumer<String> progress = line -> {};
 
@@ -58,6 +60,57 @@ final class ModArchive {
         throw new Unsupported(got > 0 && m[0] == '<' ? "HTML" : "?");
     }
 
+    // whether the archive is a texture pack, by its entries' names alone (no data read): the Mods Loader asks its size
+    // before it goes in. False for anything that will not list
+    static boolean isTexturePack(File file) {
+        try {
+            for (String n : names(file))
+                if (!TexturePacks.packPaths(java.util.Collections.singletonList(n.replace('\\', '/'))).isEmpty()) return true;
+        } catch (IOException | RuntimeException | LinkageError e) {
+            // read as it goes in
+        }
+        return false;
+    }
+
+    private static java.util.List<String> names(File file) throws IOException {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        byte[] m = new byte[8];
+        int got;
+        try (FileInputStream in = new FileInputStream(file)) {
+            got = in.read(m);
+        }
+        if (got >= 4 && m[0] == 'P' && m[1] == 'K') {
+            try (ZipFile z = new ZipFile(file)) {
+                for (Enumeration<? extends ZipEntry> en = z.entries(); en.hasMoreElements(); ) out.add(en.nextElement().getName());
+            }
+            return out;
+        }
+        if (got >= 6 && m[0] == '7' && m[1] == 'z') {
+            try (SevenZFile z = new SevenZFile(file, SevenZFileOptions.builder().withMaxMemoryLimitInKb(SEVEN_Z_MEMORY_KB).build())) {
+                for (SevenZArchiveEntry e : z.getEntries()) out.add(e.getName());
+                return out;
+            } catch (IOException e) {
+                // libarchive below
+            }
+        }
+        if (got < 4) return out;
+        long a = Archive.readNew();
+        try {
+            Archive.readSupportFilterAll(a);
+            Archive.readSupportFormatAll(a);
+            Archive.readOpenFileName(a, file.getPath().getBytes(StandardCharsets.UTF_8), 1 << 16);
+            for (long e; (e = Archive.readNextHeader(a)) != 0; ) {
+                byte[] raw = ArchiveEntry.pathname(e);
+                String name = raw == null ? ArchiveEntry.pathnameUtf8(e) : new String(raw, StandardCharsets.UTF_8);
+                if (name != null) out.add(name);
+                Archive.readDataSkip(a);
+            }
+        } finally {
+            Archive.readFree(a);
+        }
+        return out;
+    }
+
     static void clear(File spool) {
         File[] old = spool.listFiles();
         if (old != null) for (File f : old) f.delete();
@@ -70,13 +123,14 @@ final class ModArchive {
         return CarConverter.wanted(name) || TexturePacks.wanted(name);
     }
 
-    private static void save(Map<String, File> out, File spool, String name, byte[] data, int[] total) throws IOException {
+    private static void save(Map<String, File> out, File spool, String name, byte[] data, long[] total) throws IOException {
         if (TexturePacks.isImage(name) && !CarConverter.wanted(name)) {
             data = TexturePacks.shrink(data);
             if (data == null) return;  // a format the game's draws cannot take
         }
         total[0] += data.length;
-        if (total[0] > MAX_ALL || total[0] < 0) throw new IOException("the archive's files are too large");
+        if (total[0] > MAX_ALL) throw new IOException("the archive's files are too large");
+        if (spool.getUsableSpace() < data.length + ROOM) throw new IOException("not enough storage left on the phone");
         if (out.size() % 20 == 19) progress.accept("read " + (out.size() + 1));
         File f = new File(spool, String.valueOf(out.size()));
         try (FileOutputStream o = new FileOutputStream(f)) {
@@ -89,7 +143,7 @@ final class ModArchive {
         int read(byte[] b, int off, int len) throws IOException;
     }
 
-    private static byte[] all(Chunk in, long size, int[] total) throws IOException {
+    private static byte[] all(Chunk in, long size, long[] total) throws IOException {
         if (size > MAX_FILE) throw new IOException("a file in the archive is too large");
         byte[] b = new byte[size > 0 ? (int) size : 1 << 16];
         int n = 0;
@@ -111,7 +165,7 @@ final class ModArchive {
 
     private static Map<String, File> zip(File file, File spool) throws IOException {
         Map<String, File> out = new LinkedHashMap<>();
-        int[] total = {0};
+        long[] total = {0};
         try (ZipFile z = new ZipFile(file)) {
             Enumeration<? extends ZipEntry> en = z.entries();
             while (en.hasMoreElements()) {
@@ -135,7 +189,7 @@ final class ModArchive {
 
     private static Map<String, File> sevenZJava(File file, File spool) throws IOException {
         Map<String, File> out = new LinkedHashMap<>();
-        int[] total = {0};
+        long[] total = {0};
         SevenZFileOptions options = SevenZFileOptions.builder().withMaxMemoryLimitInKb(SEVEN_Z_MEMORY_KB).build();
         try (SevenZFile z = new SevenZFile(file, options)) {
             SevenZArchiveEntry e;
@@ -149,7 +203,7 @@ final class ModArchive {
 
     private static Map<String, File> libarchive(File file, File spool) throws IOException {
         Map<String, File> out = new LinkedHashMap<>();
-        int[] total = {0};
+        long[] total = {0};
         long a;
         try {
             a = Archive.readNew();

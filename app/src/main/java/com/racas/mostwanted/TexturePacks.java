@@ -22,11 +22,13 @@ import java.util.function.Consumer;
 // The PC's NextGenGraphics texture packs: a TexturePackInfo.json maps a game texture (gameId, its name or 0x and its hash)
 // to a .dds under rootDirectory. Each pack is kept in mods/textures/<pack>, an image a file named by the hash of its game
 // texture's name (bStringHash, as GetTextureInfo is asked), which native/vulkan.cpp draws in its place
-// (src/common/texture_packs.h). The images are made at most MAX texels across, with all their mips: a pack's 8192 texel
+// (src/common/texture_packs.h). The images are made at most max texels across, with all their mips: a pack's 8192 texel
 // textures are 85 MB each, more than a phone's GPU holds a city of. A file with mips is cut to the mip of that size; one
 // without (or still too big) is decoded, shrunk by a box filter, given its mips and encoded again in its own format.
 final class TexturePacks {
-    static final int MAX = 1024;
+    // the largest an image is kept, chosen as a pack goes in (ModsActivity): the game's TEXTURE RESOLUTION picks up to it
+    static final int[] SIZES = {512, 1024, 2048, 4096};
+    static volatile int max = 1024;
     private static final String DIR = "textures", INFO = "info.txt", JSON = "texturepackinfo.json";
 
     private TexturePacks() {}
@@ -59,6 +61,7 @@ final class TexturePacks {
     static final class Kept {
         String id, name, author;
         int count;
+        int size;  // the largest its images were kept, 0 if an older install did not say (1024)
     }
 
     static List<Kept> kept() {
@@ -74,6 +77,7 @@ final class TexturePacks {
                 k.name = l.get(0);
                 k.author = l.size() > 1 ? l.get(1) : "";
                 k.count = l.size() > 2 ? Integer.parseInt(l.get(2).trim()) : 0;
+                k.size = l.size() > 3 ? Integer.parseInt(l.get(3).trim()) : 1024;
                 out.add(k);
             } catch (IOException | RuntimeException e) {
                 // half written: not a pack
@@ -140,7 +144,7 @@ final class TexturePacks {
                 deleteTree(work);
                 continue;
             }
-            write(new File(work, INFO), (name + "\n" + author + "\n" + count + "\n").getBytes(StandardCharsets.UTF_8));
+            write(new File(work, INFO), (name + "\n" + author + "\n" + count + "\n" + max + "\n").getBytes(StandardCharsets.UTF_8));
             ModInstaller.stopGame(context);
             File dest = new File(root, id);
             deleteTree(dest);
@@ -217,7 +221,7 @@ final class TexturePacks {
         return Math.max(1, (w + 3) / 4) * Math.max(1, (h + 3) / 4) * (format == DXT1 ? 8 : 16);
     }
 
-    // a .dds at most MAX across with its mips, or null for one this cannot use (cube maps, volumes, other formats)
+    // a .dds at most max across with its mips, or null for one this cannot use (cube maps, volumes, other formats)
     static byte[] shrink(byte[] d) {
         if (d.length < 128 || i32(d, 0) != 0x20534444) return null;
         int h = i32(d, 12), w = i32(d, 16), flags = i32(d, 8);
@@ -245,16 +249,16 @@ final class TexturePacks {
             lh = Math.max(1, lh / 2);
         }
         if (have == 0) return null;
-        // the first level at most MAX across
+        // the first level at most max across
         int start = 0;
         lw = w;
         lh = h;
-        while (start + 1 < have && Math.max(lw, lh) > MAX) {
+        while (start + 1 < have && Math.max(lw, lh) > max) {
             start++;
             lw = Math.max(1, lw / 2);
             lh = Math.max(1, lh / 2);
         }
-        if (Math.max(lw, lh) <= MAX && have - start > 1) {
+        if (Math.max(lw, lh) <= max && have - start > 1) {
             // its own mips, from there to the last
             if (start == 0 && have == mips) return d;
             int end = at;
@@ -268,10 +272,10 @@ final class TexturePacks {
             put32(out, 20, levelSize(format, lw, lh));
             return out;
         }
-        // decoded, shrunk, mipped and encoded again, from the smallest level at least MAX across (or the last there is)
+        // decoded, shrunk, mipped and encoded again, from the smallest level at least max across (or the last there is)
         int[] px = decodeShrunk(d, offs[start], format, lw, lh, (pf & 1) != 0, i32(d, 92) == 0xFF);
         int f = 1;
-        while (Math.max(lw, lh) / f > MAX) f <<= 1;
+        while (Math.max(lw, lh) / f > max) f <<= 1;
         int ow = Math.max(1, lw / f), oh = Math.max(1, lh / f);
         // not shrunk: its first level as it was, only the mips made
         byte[] first = f == 1 ? Arrays.copyOfRange(d, offs[start], offs[start] + levelSize(format, lw, lh)) : null;
@@ -279,11 +283,11 @@ final class TexturePacks {
         return encode(px, ow, oh, format, first);
     }
 
-    // a level as ARGB, shrunk by a power of two box to at most MAX across, a row at a time: an 8192 texel level decoded
+    // a level as ARGB, shrunk by a power of two box to at most max across, a row at a time: an 8192 texel level decoded
     // whole would be a quarter of a gigabyte
     private static int[] decodeShrunk(byte[] d, int at, int format, int w, int h, boolean alpha, boolean rgbaOrder) {
         int f = 1;
-        while (Math.max(w, h) / f > MAX) f <<= 1;
+        while (Math.max(w, h) / f > max) f <<= 1;
         int ow = Math.max(1, w / f), oh = Math.max(1, h / f);
         int[] out = new int[ow * oh];
         long[] acc = new long[ow * 4];

@@ -88,6 +88,12 @@
     <string name="mods_bad_archive">Arsip ini tidak bisa dibuka di sini (%1$s). Yang bisa: ZIP, 7z, dan RAR.</string>
     <string name="mods_too_big">Mobil ini terlalu besar untuk dikonversi di HP ini.</string>
     <string name="mods_error">Gagal: %1$s</string>
+    <string name="mods_res_title">Resolusi tekstur</string>
+    <string name="mods_res_small">paling kecil, untuk HP lama</string>
+    <string name="mods_res_recommended">disarankan</string>
+    <string name="mods_res_large">lebih tajam, kira-kira 2x ukuran</string>
+    <string name="mods_res_huge">paling tajam, sangat besar, butuh banyak memori GPU</string>
+    <string name="mods_next">Lanjut</string>
     <string name="mods_texture_pack">Paket tekstur · %1$d tekstur</string>
     <string name="mods_reading_files">Membaca arsip… %1$s file</string>
     <string name="mods_remove_pack_text">Hapus %1$s? Tekstur asli game akan kembali.</string>

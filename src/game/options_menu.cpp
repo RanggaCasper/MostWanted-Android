@@ -767,6 +767,7 @@ auto GraphicsFields() {
         o.night_mode,
         o.motion_blur,
         o.texture_packs,
+        o.texture_resolution,
         o.screen_filter
     );
 }

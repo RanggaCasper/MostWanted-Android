@@ -47,6 +47,7 @@ struct Options {
     bool music_restored = false;  // once: the music switches an earlier build saved at 0 given back, src/game/game.cpp
     bool shader_preload = false;  // native/vulkan.cpp makes earlier runs' shaders and pipelines at the start
     bool texture_packs = true;  // the Mods Loader's texture packs drawn over the game's own, src/game/texture_packs.cpp
+    uint32_t texture_resolution = 0;  // the packs' images at most this many texels across, 0 as installed; native/vulkan.cpp
     bool motion_blur = true;   // the blur by speed and the nitrous' radial blur, src/game/game.cpp skips them when off
     // cheats, src/game/game.cpp's ApplyCheats
     bool cheat_nos = false;           // the nitrous never runs out
