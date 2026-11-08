@@ -242,7 +242,33 @@ uint32_t StockStandIn(uint32_t vehicle) {
     return pick;
 }
 
+// A handle the list (this, the profile's +0x414) has, for one it has not: the career's car, else the first listed
+uint32_t ListedHandle(uint32_t table, uint32_t handle) {
+    if (!mem::IsCommitted(table + kEntries * kEntry - 1)) return handle;
+    uint32_t first = kEmpty;
+    for (uint32_t i = 0; i < kEntries; i++) {
+        uint32_t h = kernel::R32(table + i * kEntry);
+        if (h == handle) return handle;
+        if (first == kEmpty && h != kEmpty) first = h;
+    }
+    uint32_t current = kernel::R32(table - kPlayerCarDb + kCurrentCar), pick = first;
+    for (uint32_t i = 0; i < kEntries && current != kEmpty; i++)
+        if (kernel::R32(table + i * kEntry) == current) pick = current;
+    if (pick == kEmpty) return handle;
+    LOGR("mods: car %u is not in the profile's list (an add-on taken out); %u instead", handle, pick);
+    return pick;
+}
+
 }  // namespace game
+
+// A car's ride built from its record (thiscall on the profile's car list: handle, ?, the ride; 0x140BE0). A handle the
+// list has not, a removed add-on's that a race mode's settings kept (0x2ADA23, the settings' +0x10), found no record and
+// read through 0 (0x13417B); it is given one the list has
+X86_EXTERN_FUNC(__imp__sub_00140BE0);
+X86_FUNC(sub_00140BE0) {
+    kernel::W32(ctx.esp + 4, game::ListedHandle(ctx.ecx, kernel::R32(ctx.esp + 4)));
+    __imp__sub_00140BE0(ctx, base);
+}
 
 // An AI racer's vehicle made (thiscall, the pvehicle key; class 3, DRIVER_RACER, 0x172970), from the race's list of
 // opponents' cars (0x199024): an add-on's key is given a stock car's
