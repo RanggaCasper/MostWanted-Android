@@ -315,7 +315,9 @@ constexpr Row kCheatRows[] = {
 
 // the credits' names, an info row's id; as they are, untranslated
 const char* const kCreditNames[] = {"Rangga Casper", "Zukiru", "bagasromadon", "TGP482",
-                                    "SDL, glslang, toml++, Dear ImGui", "xemu, Cxbx-Reloaded"};
+                                    "SDL, glslang, toml++, Dear ImGui", "xemu, Cxbx-Reloaded",
+                                    // the contributors, by what they brought (git shortlog)
+                                    "datfooldive", "bramaudi", "zetaxlinux"};
 
 // a page of its own: who made the port, and the links to support it
 constexpr Row kCreditRows[] = {
@@ -326,6 +328,10 @@ constexpr Row kCreditRows[] = {
     {Kind::Info, 3, "RECOMPILER AND RUNTIME"},
     {Kind::Info, 4, "LIBRARIES"},
     {Kind::Info, 5, "XBOX REFERENCES"},
+    {Kind::Heading, -1, "CONTRIBUTORS"},
+    {Kind::Info, 6, "LINUX AND CINEMATIC MODE"},
+    {Kind::Info, 7, "CONTROLLER SETTINGS"},
+    {Kind::Info, 8, "LANDSCAPE ORIENTATION"},
     {Kind::Heading, -1, "SUPPORT"},
     {Kind::Link, kDonate, "DONATE"},
     {Kind::Link, kGithub, "GITHUB"},

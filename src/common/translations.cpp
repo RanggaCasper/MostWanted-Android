@@ -93,6 +93,10 @@ constexpr Entry kEntries[] = {
     {"SELECT", {u"Choisir", u"Auswählen", u"Scegli", u"Elegir", u"Pilih"}},
     {"NEXT ITEM", {u"Élément suivant", u"Nächster Eintrag", u"Voce successiva", u"Siguiente opción", u"Item berikutnya"}},
     {"LIVE", {u"En direct", u"Live", u"Dal vivo", u"En vivo", u"Live"}},
+    {"CONTRIBUTORS", {u"Contributeurs", u"Mitwirkende", u"Collaboratori", u"Colaboradores", u"Kontributor"}},
+    {"LINUX AND CINEMATIC MODE", {u"Linux et mode cinématique", u"Linux und Kinomodus", u"Linux e modalità cinematica", u"Linux y modo cinemático", u"Linux dan mode sinematik"}},
+    {"CONTROLLER SETTINGS", {u"Réglages de la manette", u"Controller-Einstellungen", u"Impostazioni controller", u"Ajustes del mando", u"Pengaturan controller"}},
+    {"LANDSCAPE ORIENTATION", {u"Orientation paysage", u"Querformat", u"Orientamento orizzontale", u"Orientación horizontal", u"Orientasi landscape"}},
     // the replay's
     {"REPLAY", {u"Ralenti", u"Wiederholung", u"Replay", u"Repetición", u"Tayangan ulang"}},
     {"PLAY", {u"Lire", u"Abspielen", u"Riproduci", u"Reproducir", u"Putar"}},
