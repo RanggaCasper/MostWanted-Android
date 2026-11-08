@@ -15,7 +15,7 @@ The game's x86 code is statically recompiled ahead of time to C++ with [XboxXBE-
 
 <p align="center">
   <a href="https://youtu.be/x5bczwTuyhw">
-    <img src="https://img.youtube.com/vi/0ILO1_gulrg/maxresdefault.jpg" alt="Black Android gameplay on POCO F6" width="720">
+    <img src="https://img.youtube.com/vi/0ILO1_gulrg/maxresdefault.jpg" alt="Most Wanted Android gameplay" width="720">
   </a>
   <br>
   <sub>▶ Gameplay on Xiaomi Pad 7</sub>
@@ -26,7 +26,7 @@ The game's x86 code is statically recompiled ahead of time to C++ with [XboxXBE-
 2. Open **Most Wanted** and allow **all files access** when it asks (on Android 10, the **storage** permission). It is required: the game doesn't start without it.
 3. Copy the game into `/storage/emulated/0/MostWanted`, or into a `MostWanted` folder at the top of your SD card: either the disc image (`.iso`) or `default.xbe` with the disc's `NFS` folder beside it. The app creates the folder on the phone's storage once access is allowed, and starts the game as soon as it finds the files.
 
-Saves go in `/storage/emulated/0/MostWanted/hdd` and logs in `/storage/emulated/0/MostWanted/logs`, so they stay if the app is uninstalled. Updating from a version that kept the saves in `Android/data/com.racas.mostwanted/files/hdd` copies them there on the first start; the old copy is left as it was. Settings (`mostwanted.toml`, `android.toml`, `layout.toml`) and the shader cache stay in `Android/data/com.racas.mostwanted/files`.
+Saves go in `/storage/emulated/0/MostWanted/hdd` and logs in `/storage/emulated/0/MostWanted/logs`, so they stay if the app is uninstalled. Each start copies a changed save to `/storage/emulated/0/MostWanted/backups/saves` (the last ten are kept), and a save whose writing was cut short (the app closed while the game was saving) is put back from its last good copy. Updating from a version that kept the saves in `Android/data/com.racas.mostwanted/files/hdd` copies them there on the first start; the old copy is left as it was. Settings (`mostwanted.toml`, `android.toml`, `layout.toml`) and the shader cache stay in `Android/data/com.racas.mostwanted/files`.
 
 The supported disc is the USA Black Edition (`default.xbe` SHA-1 `f636a16af04171089f879a4bed646e185c734233`).
 
@@ -54,14 +54,29 @@ A full Xbox controller on the screen:
 - **Audio Output**: automatic, mono, stereo or 5.1 surround.
 - **Background Pause**: the game and its sound pause while the app is in the background.
 
+### Add-on Cars (Mods Loader)
+**Most Wanted Mods Loader** has an icon of its own beside the game's. It puts cars made for the PC version into the game, converting them to the Xbox game's format on the phone:
+1. Tap **Get cars on NFSAddons**: the site opens in your browser. Download a Most Wanted car (ZIP, 7z or RAR).
+2. Tap **Install from file** and choose it, or open or share the downloaded file with Mods Loader. Packs with several cars install every car in them.
+3. Tap **Play**: the cars are in the car select and your garage.
+
+Installed cars are listed in Mods Loader, each with a **Remove** button. The game's files must be in place first, as the cars are built from them; the app downloads nothing itself. Saves keep working when cars are added or removed.
+
+### My Music
+Put your own songs (MP3, M4A/AAC, OGG, Opus, FLAC or WAV) in `/storage/emulated/0/MostWanted/music`; name them `Artist - Title`, and a subfolder becomes the album. The **MY MUSIC** tab of the gear's panel chooses what plays (My Music or the game's EA Trax), in order or at random, and for each song whether it plays in menus, races or both, and its place in the list. The songs follow the game's music volume sliders and show on the game's song banner.
+
+### Cheats
+On the gear's panel: infinite nitrous, infinite speedbreaker, max cash, no police, unlock all, no traffic and auto shift in drag races.
+
 ## Status
 Tested on a Xiaomi Pad 7 (Snapdragon 7+ Gen 3): boot, the menus, the career intro and races play, about 60 FPS in a race.
 
 - `xbe_symbols` finds 165 of the 238 XDK functions the host knows and all 12 data symbols; the others are not linked into this image. Eleven more were resolved by hand in `config/game.toml`.
 - Most Wanted runs many of its vertex programs from the GPU's program memory (`LoadVertexShaderProgram` and `SelectVertexShaderDirect`), pushes its vertex constants inline, sets its pixel combiners with render states and gives its own frame and depth buffers; the host handles each.
 - Visibility tests (the sun's glare) are not counted yet: the glare stays off.
-- Game-specific work so far: the settings live in the game's own OPTIONS menu (ANDROID OPTIONS, in the main menu and the pause menu); quality switches for car and road reflections, shadows, particles, rain, screen raindrops, the yellow tint and motion blur; widescreen (Hor+) for any screen shape; SKIP MOVIES; menus by touch; a HUD layout editor; a RESET button that puts the car back on the road; and cheats (infinite nitrous and speedbreaker, max cash, no police, unlock all) on the gear's panel.
-- Fixed in the next release: the game crashed as a movie started or stopped (at boot, after a race), on phones with several cores. EA's stream reader read data the stream thread was still writing.
+- Game-specific work so far: the settings live in the game's own OPTIONS menu (ANDROID OPTIONS, in the main menu and the pause menu); quality switches for car and road reflections, shadows, particles, rain, screen raindrops, the yellow tint and motion blur; widescreen (Hor+) for any screen shape; SKIP MOVIES; menus by touch; a HUD layout editor; a RESET button that puts the car back on the road; cheats; add-on cars; and My Music.
+- Fixed in v1.3.0: the game crashed as a movie started or stopped (at boot, after a race), on phones with several cores. EA's stream reader read data the stream thread was still writing.
+- Fixed in the next release: force closes while loading, in free roam, at the start of the career and after Blacklist races. The Xbox had one core, and on a phone the game's threads read the same archive and took slots from the same pools at once; those places are now locked. Also a crash in the music after a boss race.
 - Known: a story film (after the first race) has been seen to stop on its first picture. The engine's own cutscenes (rival intros, the career's opening) can't be skipped yet.
 
 Logs are in `/storage/emulated/0/MostWanted/logs`. On Android 11 and newer, a crash is written there as `crash_<date>.txt` the next time you open the game. Please include `mostwanted.log`, and the crash file if there is one, when reporting a problem.
@@ -93,7 +108,9 @@ Install the APK with:
 adb install -r app/build/outputs/apk/release/app-release.apk
 ```
 
-The SDK is vendored in `sdk/`, at the upstream commit in `sdk/UPSTREAM_COMMIT`, with one change: the console's language comes from `app::ConsoleLanguage()` (`sdk/runtime/kernel/xboxkrnl.cpp`).
+The SDK is vendored in `sdk/`, at the upstream commit in `sdk/UPSTREAM_COMMIT`, with three changes: the guest has 128 MB of memory (`sdk/runtime/kernel/memory.h`), the console's language comes from `app::ConsoleLanguage()` (`sdk/runtime/kernel/xboxkrnl.cpp`), and the disc's files are read from `MostWanted/mods` when they are there (`sdk/runtime/kernel/files.cpp`).
+
+`tools/car_mod.py <iso> <mod folder> <out>` converts one PC car on the PC, as Mods Loader does on the phone.
 
 ## Credits
 - [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) by TGP482: the static recompiler and the portable runtime (Xbox kernel, XDK libraries and Direct3D 8) this port is built on.
@@ -102,5 +119,11 @@ The SDK is vendored in `sdk/`, at the upstream commit in `sdk/UPSTREAM_COMMIT`, 
 - [bagasromadon](https://github.com/bagasromadon): Button Design.
 - [SDL](https://github.com/libsdl-org/SDL), [glslang](https://github.com/KhronosGroup/glslang), [toml++](https://github.com/marzer/tomlplusplus) and [Dear ImGui](https://github.com/ocornut/imgui).
 - [xemu](https://github.com/xemu-project/xemu) and [Cxbx-Reloaded](https://github.com/Cxbx-Reloaded/Cxbx-Reloaded), which XboxXBE-Recomp used as references for Xbox hardware and API behavior.
+
+- [Apache Commons Compress](https://commons.apache.org/proper/commons-compress/), [XZ for Java](https://tukaani.org/xz/java.html) and [libarchive for Android](https://github.com/zhanghai/libarchive-android), which open the cars' archives.
+- The authors of the add-on cars on [NFSAddons](https://nfsaddons.com/).
+
+## License
+This project is licensed under the [GNU General Public License v3.0](LICENSE). The SDK in `sdk/` keeps its own MIT license (`sdk/LICENSE`), and the libraries above keep theirs.
 
 *Need for Speed* is a trademark of Electronic Arts Inc. This project is not affiliated with or endorsed by them.
