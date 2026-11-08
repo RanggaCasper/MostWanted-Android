@@ -1,5 +1,5 @@
-// REPLAY: the race watched again, the last minute of it or all of it, from the pause menu's icon (or the panel's
-// WATCH REPLAY, once the race is over). The Xbox game has no replays: the cars are recorded here as they are drawn,
+// REPLAY: the race watched again, the last minute of it or all of it, from the pause menu's icon or, once the race is
+// over, a REPLAY button over its results. The Xbox game has no replays: the cars are recorded here as they are drawn,
 // and drawn again from the recording with the camera ours.
 //
 // How a car is drawn (decompiled): each car of the race has a render connection whose update (0x25CC70, thiscall:
@@ -27,6 +27,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <strings.h>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -39,6 +40,9 @@
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
 #include "common/translations.h"
+#include "common/video.h"
+#include "common/replay_audio.h"
+#include "audio/output.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "cpu/x86_ops.h"
@@ -46,6 +50,9 @@
 #include "kernel/memory.h"
 
 namespace game {
+
+// the race's sound between two of its clock's times, for a saved video (below)
+std::vector<int16_t> SoundBetween(double from, double to);
 
 namespace {
 
@@ -58,6 +65,28 @@ constexpr uint32_t kCamPosition = 0x40, kCamNoise = 0x70, kCamNoiseEnd = 0xB0, k
 constexpr uint32_t kSetCameraMatrix = 0x599E0;
 constexpr uint32_t kPrecullMode = 0x469740;
 constexpr uint32_t kFEng = 0x48E94C, kSwitchPackage = 0xEB160, kPauseMainFng = 0x3D0618;
+// The track is streamed about the camera: each frame the camera mover (0x62CA0, while the race runs) clears the
+// TrackStreamer's (0x4C88F8) two places (0x235CD0) and sets the first (0x235C80), and the main loop (0x1C6F50) services
+// it (ServiceGameState 0x23F0D0: the zones about them, switched and loaded), paused too. Played back far from where the
+// race was paused, the road was not loaded and the cars ran in the dark: the replay sets the place itself
+// (SetStreamingPosition 0x235C30: the place, its velocity none), as the game does when it moves a car (0x210800); and
+// leaving, the car's place again, waited for (0x23E4E0 services the loading till it is done)
+constexpr uint32_t kTrackStreamer = 0x4C88F8, kClearStreaming = 0x235CD0, kSetStreaming = 0x235C30;
+constexpr uint32_t kServiceStreaming = 0x23F0D0, kWaitStreaming = 0x23E4E0;
+// and the pause locks the zones where they are: the byte at +0x2B1 (0x4C8BA9), set as it pauses (0x116FBB) and
+// cleared as it resumes (0xE6BB6, then 0x23F180), makes ServiceGameState switch none. Clear while the replay plays
+constexpr uint32_t kZonesLocked = kTrackStreamer + 0x2B1;
+constexpr float kStreamStep = 4;  // metres the camera goes before the place is set again
+// The race over, the game runs on under the results (the photo, InGamePhotoMaster.fng, and the stats,
+// PostRace_Results.fng) and its camera mover sets the streamed place each frame over the replay's: while the replay
+// plays, the mover's clear and set (0x235CD0, 0x235C80) are skipped, the replay's own let through
+std::atomic<bool> g_streaming_ours{false};
+// a REPLAY button over those screens (a touch, or Back on the pad), cFEng's packages walked for them
+constexpr uint32_t kFirstPackage = 0xE0, kPackageNext = 4, kPackageName = 0xC;
+const char* const kPostRacePackages[] = {"InGamePhotoMaster", "PostRace_Results"};
+std::atomic<bool> g_post_race{false};
+std::atomic<bool> g_post_race_tap{false};
+std::atomic<float> g_button_rect[4] = {0, 0, 0, 0};
 
 constexpr double kSampleRate = 30;
 constexpr float kRecordRange = 300;            // metres from the player's car
@@ -169,6 +198,30 @@ std::vector<CarSample> g_samples;
 double g_clock = 0, g_next_sample = 0;
 std::chrono::steady_clock::time_point g_last_tick;
 bool g_was_racing = false;
+// a restart (ERestartRace, made and run by 0x1A6DE0) keeps the game flow racing: its recording went on into the next
+// race's and the replay showed the one before. Taken at the next frame's start
+std::atomic<bool> g_restarted{false};
+
+// The race's sound, for the replay: paused under it the game makes none. The game's own mix (EA's mixer, 5.1, before
+// My Music, which is the host's and stays out) is folded to stereo and kept at half the rate, a mark a block tying its
+// frames to the race's clock. Played, the frames at the replay's place are put in the mix instead of the game's, at
+// its speed (as a tape, the pitch with it); paused or wound, silence. EA Trax plays in the same mix as the engines and
+// cannot be taken out of it
+constexpr uint32_t kAudioDiv = 2, kAudioRate = audio::kRate / kAudioDiv;
+constexpr size_t kAudioMaxFrames = size_t(kAudioRate) * 60 * 8;  // eight minutes, the oldest dropped past it
+std::mutex g_audio_lock;
+std::vector<int16_t> g_pcm;  // stereo frames
+uint64_t g_pcm_base = 0;     // the frame number of g_pcm's first
+struct Mark {
+    double clock;
+    uint64_t frame;
+};
+std::vector<Mark> g_marks;
+std::atomic<bool> g_audio_rec{false};  // the game thread's: the race runs and is recorded
+std::atomic<double> g_audio_clock{0};  // its clock, as the audio thread marks the blocks
+std::atomic<double> g_audio_t{0};      // the replay's place, and its rate (0 silent)
+std::atomic<float> g_audio_rate{0};
+double g_audio_cursor = -1;  // the audio thread's place in the recording, frames
 // the connections as their updates ran: the race clock then. One updated in the last half second is a car
 struct Seen {
     uint32_t info;
@@ -178,6 +231,12 @@ std::unordered_map<uint32_t, Seen> g_conns;
 constexpr double kAlive = 0.5;
 
 void Clear() {
+    {
+        std::lock_guard lock(g_audio_lock);
+        g_pcm.clear();
+        g_marks.clear();
+        g_pcm_base = 0;
+    }
     g_frames.clear();
     g_samples.clear();
     g_clock = g_next_sample = 0;
@@ -292,9 +351,20 @@ void HideConn(uint32_t conn) { SetF(conn + kConnBody + 0x38, kHidden); }
 
 // ---- the playback
 
-enum CameraMode { kChase, kTv, kFree, kCameraModes };
-const char* const kCameraNames[] = {"CHASE", "TV", "FREE"};
-enum Item { kPlay, kRestart, kSpeed, kCameraItem, kTarget, kLength, kHideMenu, kExit, kItems };
+// BUMPER sits low on the nose; AUTO cuts between all of the others every few seconds, as a broadcast does
+enum CameraMode { kChase, kTv, kFree, kBumper, kAuto, kCameraModes };
+const char* const kCameraNames[] = {"CHASE", "TV", "FREE", "BUMPER", "AUTO"};
+enum Item { kPlay, kRestart, kSpeed, kCameraItem, kTarget, kLength, kResolution, kSaveVideo, kHideMenu, kExit, kItems };
+// SAVE VIDEO plays the replay from its start to its end at a fixed kVideoFps step a frame, each frame read back by the
+// renderer and encoded (src/common/video.h); B stops it early with what it has. A notice tells where it went
+constexpr uint32_t kVideoFps = 30;
+constexpr uint32_t kVideoHeights[] = {480, 720, 1080};  // RESOLUTION's; as wide as the picture shows, 1920 at most
+const char* const kVideoNames[] = {"480P", "720P", "1080P"};
+std::atomic<int> g_resolution{1};
+std::atomic<bool> g_saving{false};
+bool g_save_waiting = false;  // the encoder still writing the file
+std::atomic<int> g_notice{0};  // 1 saved, 2 failed
+std::atomic<double> g_notice_until{0};
 constexpr float kSpeeds[] = {0.25f, 0.5f, 1.0f, 2.0f, 4.0f};
 
 std::atomic<bool> g_request{false}, g_request_menu{false};
@@ -302,10 +372,15 @@ std::atomic<bool> g_active{false};
 std::atomic<bool> g_drain{false};  // left: the game sees no pad until all of it is let go
 std::atomic<double> g_drain_until{0};
 bool g_from_menu = false, g_reopen_menu = false;
+bool g_restream = false;
+uint8_t g_saved_zones_locked = 0;  // left after streaming elsewhere: the car's place streamed again, waited for
 uint32_t g_camera = 0;
 uint8_t g_saved_camera[kCamSaved];
 uint32_t g_saved_precull = 0;
 uint32_t g_matrix = 0;  // guest memory for the matrix handed to SetCameraMatrix
+uint32_t g_stream_vec = 0;  // and for the place handed to SetStreamingPosition
+Vec g_streamed;
+bool g_stream_set = false;
 struct SavedConn {
     uint32_t conn, info;
     uint8_t block[kConnBlock];
@@ -348,8 +423,11 @@ Vec g_cam_pos, g_cam_look;
 float g_cam_fov = 70;
 Vec g_tv_pos;
 bool g_tv_valid = false;
-double g_tv_since = 0;          // the replay's time the TV camera was put there
+double g_tv_since = 0;
+int g_auto_mode = -1;  // AUTO's shot, its mode, and its span in the replay's time
+double g_auto_since = 0, g_auto_until = 0;          // the replay's time the TV camera was put there
 constexpr float kTvAhead = 32;  // metres along the car's way
+constexpr float kTvSight = 5;   // metres the sight back to the car may stray from the way
 float g_tv_side = 1;
 float g_orbit_yaw = 0, g_orbit_pitch = 0.25f, g_orbit_dist = 7;
 
@@ -368,6 +446,22 @@ uint32_t CallThis(X86Context& ctx, uint32_t self, uint32_t fn, std::initializer_
     uint32_t r = kernel::CallGuest(ctx, fn, args);
     ctx.ecx = ecx;
     return r;
+}
+
+// the track streamed about pos (see kTrackStreamer)
+void StreamAt(X86Context& ctx, Vec pos) {
+    if (!g_stream_vec) g_stream_vec = mem::AllocSystem(16);
+    if (!g_stream_vec) return;
+    SetF(g_stream_vec, pos.x);
+    SetF(g_stream_vec + 4, pos.y);
+    SetF(g_stream_vec + 8, pos.z);
+    SetF(g_stream_vec + 12, 0);
+    g_streaming_ours = true;
+    CallThis(ctx, kTrackStreamer, kClearStreaming, {});
+    CallThis(ctx, kTrackStreamer, kSetStreaming, {0, g_stream_vec});
+    g_streaming_ours = false;
+    g_streamed = pos;
+    g_stream_set = true;
 }
 
 // the world to view matrix of a camera at pos looking along fwd, level, handed to the game as a camera mover does
@@ -436,16 +530,26 @@ void Enter() {
         LOGR("replay: not entered, camera %08X racing %d, %zu frames", cam, Racing(), g_frames.size());
         return;
     }
-    // the cars to follow: the player's (the last frame's), then the others the last frame has
+    // the cars to follow: the player's (the last frame's), then the racers. A racer is in most of the recording, from
+    // the start line on; traffic and cops come and go about the player's car and are drawn but not followed
     g_targets.clear();
     const Frame& last = g_frames.back();
     if (last.player >= 0) {
         const CarSample& s = g_samples[last.first + size_t(last.player)];
         g_targets.push_back({s.conn, s.info});
     }
-    for (size_t i = last.first; i < last.first + last.count; i++)
-        if (g_targets.empty() || g_samples[i].conn != g_targets.front().conn)
-            g_targets.push_back({g_samples[i].conn, g_samples[i].info});
+    std::vector<std::pair<Target, size_t>> seen;  // each car and the frames it is in
+    for (const Frame& f : g_frames)
+        for (size_t i = f.first; i < f.first + f.count; i++) {
+            const CarSample& s = g_samples[i];
+            auto it = std::find_if(seen.begin(), seen.end(),
+                                   [&](const auto& c) { return c.first.conn == s.conn && c.first.info == s.info; });
+            if (it == seen.end()) seen.push_back({{s.conn, s.info}, 1});
+            else it->second++;
+        }
+    for (const auto& [car, frames] : seen)
+        if (frames * 10 >= g_frames.size() * 7 && (g_targets.empty() || car.conn != g_targets.front().conn))
+            g_targets.push_back(car);
     if (g_targets.empty()) {
         LOGR("replay: not entered, no car recorded");
         return;
@@ -455,6 +559,7 @@ void Enter() {
     std::memcpy(g_saved_camera, kernel::HostPtr(cam), kCamSaved);
     g_saved_precull = kernel::R32(kPrecullMode);
     kernel::W32(kPrecullMode, 0);
+    g_saved_zones_locked = kernel::G<uint8_t>(kZonesLocked);
     g_saved_conns.clear();
     ForEachConn([](uint32_t conn, uint32_t info) {
         SavedConn s{conn, info, {}};
@@ -473,13 +578,18 @@ void Enter() {
     g_first_pad = true;
     g_last = std::chrono::steady_clock::now();
     g_from_menu = g_request_menu;
+    g_audio_rec = false;
+    g_audio_cursor = -1;
     g_active = true;
     LOGR("replay: on, %.1f s of %.1f, %d cars, forward row %d%s", g_end - g_begin, g_end - g_frames.front().t,
          int(g_targets.size()), g_fwd_row, g_fwd_sign < 0 ? " backward" : "");
 }
 
+void StopSaving();
+
 void Leave(const char* why) {
     if (!g_active) return;
+    StopSaving();
     // each car as it was, where it still is the same car
     ForEachConn([](uint32_t conn, uint32_t info) {
         for (const SavedConn& s : g_saved_conns)
@@ -489,6 +599,10 @@ void Leave(const char* why) {
     if (g_camera && Committed(g_camera, kCamSaved)) std::memcpy(kernel::HostPtr(g_camera), g_saved_camera, kCamSaved);
     kernel::W32(kPrecullMode, g_saved_precull);
     g_active = false;
+    g_audio_rate = 0;
+    g_restream = g_stream_set && Racing();
+    if (!g_restream) kernel::G<uint8_t>(kZonesLocked) = g_saved_zones_locked;  // else once the car's place is streamed
+    g_stream_set = false;
     g_reopen_menu = g_from_menu && Racing();
     g_from_menu = false;
     g_drain_until = Now() + 1.5;
@@ -551,6 +665,36 @@ void Step(int item, int dir) {
     }
 }
 
+// the video's size: 720 high, as wide as the picture shows, both multiples of 16 as encoders want them
+void StartSaving() {
+    if (g_saving || video::Busy()) return;
+    uint32_t h = kVideoHeights[std::clamp(int(g_resolution), 0, int(std::size(kVideoHeights)) - 1)];
+    float aspect = std::max(Aspect(), 0.5f);
+    uint32_t w = uint32_t(std::lround(float(h) * aspect / 16.0f)) * 16;
+    if (w > 1920) {  // wider than encoders take: 1920 wide, the height brought down with it
+        w = 1920;
+        h = std::max(16u, uint32_t(std::lround(1920.0f / aspect / 16.0f)) * 16);
+    }
+    if (!video::Start(w, h, kVideoFps, SoundBetween(g_begin, g_end), kAudioRate)) {
+        g_notice = 2;
+        g_notice_until = Now() + 4;
+        return;
+    }
+    g_saving = true;
+    g_save_waiting = true;
+    g_t = g_begin;
+    g_playing = true;
+    g_menu = false;
+    g_snap = true;
+    g_tv_valid = false;
+}
+
+void StopSaving() {
+    if (!g_saving) return;
+    g_saving = false;
+    video::Stop();
+}
+
 // a row done: dir 0 its A or a touch, -1 or 1 its arrows. True to leave
 bool Act(int item, int dir) {
     switch (item) {
@@ -568,6 +712,13 @@ bool Act(int item, int dir) {
         case kCameraItem:
         case kTarget:
         case kLength: Step(item, dir); break;
+        case kResolution: {
+            constexpr int n = int(std::size(kVideoHeights));
+            int r = g_resolution + (dir ? dir : 1);
+            g_resolution = dir ? std::clamp(r, 0, n - 1) : (r % n + n) % n;
+            break;
+        }
+        case kSaveVideo: StartSaving(); break;
         case kHideMenu: g_menu = false; break;
         case kExit: return true;
         default: break;
@@ -589,10 +740,49 @@ void Camera(X86Context& ctx, float dt) {
     Vec fwd = Forward(p.body);
     Vec flat = Normal({fwd.x, fwd.y, 0}, Normal(fwd));
     Vec up{0, 0, 1};
+    // the car's own up: of the body's other rows the one nearest the world's
+    Vec car_up = up;
+    {
+        float best = -2;
+        for (int r = 0; r < 3; r++) {
+            if (r == g_fwd_row) continue;
+            Vec row{p.body.m[r * 4], p.body.m[r * 4 + 1], p.body.m[r * 4 + 2]};
+            row = Normal(row);
+            if (std::fabs(row.z) > best) best = std::fabs(row.z), car_up = row.z < 0 ? row * -1.0f : row;
+        }
+    }
     Vec pos, look;
     float fov = 70;
-    if (g_cam_mode != kFree) g_drag_x = 0, g_drag_y = 0;  // a drag turns the free camera alone
-    switch (g_cam_mode) {
+    // AUTO: a shot of another mode every 4 to 7 seconds of the replay, never the same twice running
+    int mode = g_cam_mode;
+    if (mode == kAuto) {
+        if (g_auto_mode < 0 || g_t >= g_auto_until || g_t < g_auto_since) {
+            static uint32_t seed = 0x9E3779B9u;
+            auto next = [] { return seed = seed * 1664525u + 1013904223u; };
+            int pick;
+            do pick = int(next() % uint32_t(kAuto));
+            while (pick == g_auto_mode);
+            g_auto_mode = pick;
+            g_auto_since = g_t;
+            g_auto_until = g_t + 4.0 + double(next() % 3000) / 1000.0;
+            g_orbit_yaw = float(next() % 628) / 100.0f;  // the orbit starts from another side each time
+            g_orbit_pitch = 0.15f + float(next() % 30) / 100.0f;
+            g_orbit_dist = 5.5f + float(next() % 300) / 100.0f;
+            g_snap = true;
+            g_tv_valid = false;
+        }
+        mode = g_auto_mode;
+    } else {
+        g_auto_mode = -1;
+    }
+    if (mode != kFree) g_drag_x = 0, g_drag_y = 0;  // a drag turns the free camera alone
+    switch (mode) {
+        case kBumper: {
+            pos = car + fwd * 2.25f + car_up * 0.05f;
+            look = pos + fwd * 20.0f;
+            fov = 72;
+            break;
+        }
         case kChase: {
             pos = car - flat * 6.2f + up * 2.0f;
             look = car + flat * 3.0f + up * 0.7f;
@@ -609,19 +799,33 @@ void Camera(X86Context& ctx, float dt) {
             bool past = Dot(to, flat) > 0 && Length(to) > 25.0f;
             bool lost = Length(to) > 120.0f;  // a seek or a wind back
             if (!g_tv_valid || lost || (past && g_t - g_tv_since > 1.5) || g_t < g_tv_since) {
-                Pose ahead = p;
-                for (double t = g_t; t <= std::min(g_t + 8.0, g_end); t += 0.1) {
+                // the spot is over the car's own way ahead, which is road, not beside it, where it stood in walls:
+                // the furthest point up to kTvAhead whose straight sight back to the car keeps within kTvSight of the
+                // way (on a bend it cut through the buildings on the inside, which hid the car), a little to one side
+                std::vector<Vec> way{car};
+                for (double t = g_t + 0.1; t <= std::min(g_t + 8.0, g_end); t += 0.1) {
                     Pose q;
                     if (!PoseAt(t, tg.conn, tg.info, q)) break;
-                    ahead = q;
-                    if (Length(Vec{q.body.m[12], q.body.m[13], q.body.m[14]} - car) >= kTvAhead) break;
+                    way.push_back({q.body.m[12], q.body.m[13], q.body.m[14]});
+                    if (Length(way.back() - car) >= kTvAhead) break;
                 }
-                Vec at{ahead.body.m[12], ahead.body.m[13], ahead.body.m[14]};
-                Vec af = Forward(ahead.body);
-                Vec side = Normal(Cross(Normal({af.x, af.y, 0}, flat), up), {0, 1, 0});
+                auto off_line = [](Vec a, Vec b, Vec v) {  // v's distance from the segment a b
+                    Vec ab = b - a;
+                    float len2 = Dot(ab, ab), s = len2 > 0 ? std::clamp(Dot(v - a, ab) / len2, 0.0f, 1.0f) : 0.0f;
+                    return Length(v - (a + ab * s));
+                };
+                size_t pick = way.size() - 1;
+                for (; pick > 1; pick--) {
+                    bool clear = true;
+                    for (size_t k = 1; k < pick && clear; k++) clear = off_line(car, way[pick], way[k]) <= kTvSight;
+                    if (clear && Length(way[pick] - car) >= 10.0f) break;
+                }
+                Vec at = way[pick];
+                Vec along = Normal(at - way[pick ? pick - 1 : 0], flat);
+                Vec side = Normal(Cross(Normal({along.x, along.y, 0}, flat), up), {0, 1, 0});
                 g_tv_side = -g_tv_side;
-                float high = 2.0f + float(std::fmod(g_t * 3.1, 1.5));
-                g_tv_pos = at + side * (5.5f * g_tv_side) + up * high;
+                float high = 3.0f + float(std::fmod(g_t * 3.1, 1.2));
+                g_tv_pos = at + side * (1.8f * g_tv_side) + up * high;
                 g_tv_since = g_t;
                 g_tv_valid = true;
                 g_snap = true;
@@ -641,7 +845,7 @@ void Camera(X86Context& ctx, float dt) {
             const input::Pad& pd = g_pad;
             float dx = g_drag_x.exchange(0), dy = g_drag_y.exchange(0);
             float h = std::max(g_screen_h.load(), 1.0f);
-            g_orbit_yaw += -Stick(pd.rx) * 2.2f * dt - dx / h * 3.0f;
+            g_orbit_yaw += -Stick(pd.rx) * 2.2f * dt - dx / h * 3.0f + (g_cam_mode == kAuto ? 0.25f * dt : 0.0f);
             g_orbit_pitch = std::clamp(g_orbit_pitch + Stick(pd.ry) * 1.5f * dt + dy / h * 2.0f, -0.15f, 1.4f);
             g_orbit_dist = std::clamp(g_orbit_dist * std::exp(-Stick(pd.ly) * 1.2f * dt), 2.5f, 25.0f);
             float heading = std::atan2(flat.y, flat.x) + kPi + g_orbit_yaw;
@@ -679,6 +883,27 @@ void Tick(X86Context& ctx) {
     }
     const bool settled = !g_first_pad;
     auto edge = [&](uint16_t bit) { return settled && (p.buttons & bit) && !(g_prev_buttons & bit); };
+    if (g_saving) {
+        // saved at a fixed step whatever the frame rate, the camera's easing too; B or a touch stops it early
+        dt = 1.0f / kVideoFps;
+        if (Pressed(1) || g_tap.exchange(-1) >= 0) StopSaving();
+        g_prev_buttons = p.buttons;
+        std::memcpy(g_prev_analog, p.analog, 8);
+        g_t += double(dt);
+        if (g_t >= g_end) {
+            g_t = g_end;
+            StopSaving();
+            g_menu = true;
+        }
+        g_shown_t = float(g_t - g_begin);
+        g_shown_len = float(g_end - g_begin);
+        ApplyCars();
+        Camera(ctx, dt);
+        kernel::G<uint8_t>(kZonesLocked) = 0;
+        if (!g_stream_set || Length(g_cam_pos - g_streamed) > kStreamStep) StreamAt(ctx, g_cam_pos);
+        g_audio_rate = 0;  // the video has no sound, and the replay runs at the encoder's pace
+        return;
+    }
     bool leave = false;
     if (edge(0x10)) g_menu = !g_menu.load();  // Start
     if (Pressed(2)) Act(kPlay, 0);            // X
@@ -692,7 +917,7 @@ void Tick(X86Context& ctx) {
         if (edge(0x02) || edge(0x20)) sel = (sel + 1) % kItems;
         g_sel = sel;
         // left and right step a row's value
-        bool arrows = sel == kSpeed || sel == kCameraItem || sel == kTarget || sel == kLength;
+        bool arrows = sel == kSpeed || sel == kCameraItem || sel == kTarget || sel == kLength || sel == kResolution;
         if (arrows && edge(0x04)) Act(sel, -1);
         if (arrows && edge(0x08)) Act(sel, 1);
         if (Pressed(0)) leave |= Act(sel, 0);
@@ -733,6 +958,30 @@ void Tick(X86Context& ctx) {
 
     ApplyCars();
     Camera(ctx, dt);
+    kernel::G<uint8_t>(kZonesLocked) = 0;
+    if (!g_stream_set || Length(g_cam_pos - g_streamed) > kStreamStep) StreamAt(ctx, g_cam_pos);
+    // the sound: at the replay's speed while it plays, none paused, wound or at its end
+    g_audio_t = g_t;
+    g_audio_rate = g_playing && std::fabs(wind) <= 0.05f && g_t < g_end
+                       ? kSpeeds[std::clamp(int(g_speed), 0, int(std::size(kSpeeds)) - 1)]
+                       : 0.0f;
+}
+
+// a results screen of the race is up
+bool PostRaceShown() {
+    uint32_t fe = kernel::R32(kFEng);
+    fe = fe && mem::IsCommitted(fe) ? kernel::R32(fe) : 0;
+    uint32_t package = fe && mem::IsCommitted(fe + kFirstPackage) ? kernel::R32(fe + kFirstPackage) : 0;
+    for (int n = 0; package && n < 64 && mem::IsCommitted(package + kPackageName); n++) {
+        uint32_t name = kernel::R32(package + kPackageName);
+        if (name && mem::IsCommitted(name + 31)) {
+            const char* text = static_cast<const char*>(kernel::HostPtr(name));
+            for (const char* want : kPostRacePackages)
+                if (!strncasecmp(text, want, std::strlen(want))) return true;
+        }
+        package = kernel::R32(package + kPackageNext);
+    }
+    return false;
 }
 
 }  // namespace
@@ -742,14 +991,52 @@ void ReplayRequest(bool from_pause_menu) {
     g_request = true;
 }
 bool ReplayActive() { return g_active; }
+bool ReplayStreaming() { return g_streaming_ours; }
+void ReplayRaceRestarted() { g_restarted = true; }
 
 // game thread, the frame's start (cinematic.cpp's 0x0D8720): recording, or the replay stepped
 void ReplayFrame(X86Context& ctx) {
+    if (g_save_waiting && !g_saving && !video::Busy()) {  // the file written, or not
+        g_save_waiting = false;
+        g_notice = video::Result() == "!" || video::Result().empty() ? 2 : 1;
+        g_notice_until = Now() + 5;
+    }
+    if (g_restream) {
+        g_restream = false;
+        Vec car;
+        if (PlayerMiddle(car)) {
+            StreamAt(ctx, car);
+            g_stream_set = false;
+            CallThis(ctx, kTrackStreamer, kServiceStreaming, {});
+            CallThis(ctx, kTrackStreamer, kWaitStreaming, {});
+            LOGR("replay: the track about the car streamed again");
+        }
+        kernel::G<uint8_t>(kZonesLocked) = g_saved_zones_locked;
+    }
     if (g_reopen_menu) {
         g_reopen_menu = false;
         if (uint32_t feng = kernel::R32(kFEng)) CallThis(ctx, feng, kSwitchPackage, {kPauseMainFng, 0, 0, 0});
     }
     bool racing = Racing();
+    g_post_race = racing && !g_active && PostRaceShown();
+    if (g_post_race) {
+        // Back on the pad, or the button's touch
+        static uint16_t prev = 0;
+        uint16_t buttons;
+        {
+            std::lock_guard lock(g_lock);
+            buttons = g_pad.buttons;
+        }
+        if (((buttons & 0x20) && !(prev & 0x20)) || g_post_race_tap.exchange(false)) ReplayRequest(false);
+        prev = buttons;
+    } else {
+        g_post_race_tap = false;
+    }
+    if (g_restarted.exchange(false)) {
+        if (g_active) Leave("the race restarted");
+        std::lock_guard lock(g_lock);
+        Clear();
+    }
     if (racing != g_was_racing) {
         std::lock_guard lock(g_lock);
         Clear();  // a new race, or none
@@ -767,9 +1054,13 @@ void ReplayFrame(X86Context& ctx) {
     auto now = std::chrono::steady_clock::now();
     double dt = std::clamp(std::chrono::duration<double>(now - g_last_tick).count(), 0.0, 0.1);
     g_last_tick = now;
-    if (!racing || kernel::R32(kPauseDepth) > 0) return;  // the race's own time only
+    bool recording = racing && kernel::R32(kPauseDepth) == 0;
+    g_audio_rec = recording;
+    g_audio_rate = 0;
+    if (!recording) return;  // the race's own time only
     std::lock_guard lock(g_lock);
     g_clock += dt;
+    g_audio_clock = g_clock;
     if (g_clock >= g_next_sample) {
         Sample();
         g_next_sample = std::max(g_next_sample + 1 / kSampleRate, g_clock);
@@ -810,9 +1101,70 @@ bool ReplayPad(int port, const input::Pad& pad) {
     return false;
 }
 
+// over the race's results: REPLAY at the top right, in the pause menu's colours, as the game's prompts are
+void DrawPostRaceButton() {
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImFont* font = ImGui::GetFont();
+    const ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 screen = io.DisplaySize;
+    const float u = screen.y / 480.0f;
+    const float aspect = Aspect(), view_w = std::min(screen.x, screen.y * aspect);
+    const float view_x = (screen.x - view_w) / 2, view_y = (screen.y - view_w / aspect) / 2;
+    const std::string label = app::Ui("REPLAY");
+    const float px = 14 * u, icon = 16 * u, pad = 9 * u;
+    const float w = pad * 3 + icon + font->CalcTextSizeA(px, FLT_MAX, 0, label.c_str()).x, h = 26 * u;
+    const ImVec2 p1(view_x + view_w - 30 * u, view_y + 20 * u + h), p0(p1.x - w, p1.y - h);
+    g_button_rect[0] = p0.x, g_button_rect[1] = p0.y, g_button_rect[3] = p1.y;
+    g_button_rect[2] = p1.x;
+    const ImVec2 m = io.MousePos;
+    const bool over = m.x >= p0.x && m.x < p1.x && m.y >= p0.y && m.y < p1.y;
+    if (over && ImGui::IsMouseClicked(0)) g_post_race_tap = true;
+    const ImU32 amber = IM_COL32(236, 156, 40, 255), ink = IM_COL32(40, 26, 8, 255);
+    dl->AddRectFilled(p0, p1, over ? IM_COL32(196, 124, 28, 230) : IM_COL32(22, 16, 8, 200), h / 2);
+    dl->AddRect(p0, p1, amber, h / 2, 0, 1.6f * u);
+    ImVec2 c(p0.x + pad + icon / 2, (p0.y + p1.y) / 2);
+    dl->AddCircleFilled(c, icon / 2, amber, 24);
+    dl->AddTriangleFilled(ImVec2(c.x - icon * 0.16f, c.y - icon * 0.24f), ImVec2(c.x - icon * 0.16f, c.y + icon * 0.24f),
+                          ImVec2(c.x + icon * 0.26f, c.y), ink);
+    dl->AddText(font, px, ImVec2(c.x + icon / 2 + pad, c.y - px / 2), IM_COL32(255, 238, 208, 255), label.c_str());
+}
+
 // the menu at the left in the pause menu's colours, the timeline along the foot; hidden, the picture alone, and a
 // touch or click on it brings the menu back (a drag turns the free camera)
+// SAVE VIDEO's progress while it saves, and where the file went after, at the top of the picture
+void DrawSaveNotice() {
+    std::string text;
+    if (g_saving) {
+        float len = g_shown_len;
+        int pct = len > 0 ? int(std::clamp(g_shown_t.load() / len, 0.0f, 1.0f) * 100) : 0;
+        text = app::Ui("SAVING VIDEO") + " " + std::to_string(pct) + "%   " + app::Ui("B / TAP TO STOP");
+    } else if (video::Busy() || g_save_waiting) {
+        text = app::Ui("SAVING VIDEO") + "...";
+    } else if (g_notice && Now() < g_notice_until) {
+        text = app::Ui(g_notice == 1 ? "VIDEO SAVED TO MOVIES/MOSTWANTED" : "THE VIDEO COULD NOT BE SAVED");
+    } else {
+        return;
+    }
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImFont* font = ImGui::GetFont();
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    const float u = screen.y / 480.0f, px = 13 * u;
+    const float w = font->CalcTextSizeA(px, FLT_MAX, 0, text.c_str()).x + 28 * u, h = 26 * u;
+    const ImVec2 p0((screen.x - w) / 2, 40 * u), p1(p0.x + w, p0.y + h);
+    dl->AddRectFilled(p0, p1, IM_COL32(22, 16, 8, 210), h / 2);
+    dl->AddRect(p0, p1, IM_COL32(236, 156, 40, 255), h / 2, 0, 1.6f * u);
+    if (g_saving && std::fmod(ImGui::GetTime(), 1.0) < 0.6)
+        dl->AddCircleFilled(ImVec2(p0.x + 12 * u, (p0.y + p1.y) / 2), 4.5f * u, IM_COL32(225, 40, 30, 255), 16);
+    dl->AddText(font, px, ImVec2(p0.x + 20 * u, p0.y + (h - px) / 2), IM_COL32(255, 238, 208, 255), text.c_str());
+}
+
 void DrawReplayHud() {
+    DrawSaveNotice();
+    if (!g_active && g_post_race && !app::MenuOpen()) {
+        DrawPostRaceButton();
+        return;
+    }
+    g_button_rect[2] = 0;
     if (!g_active || app::MenuOpen()) {
         g_menu_rect[2] = 0;
         return;
@@ -881,6 +1233,8 @@ void DrawReplayHud() {
             {"CAMERA", app::Ui(kCameraNames[std::clamp(int(g_cam_mode), 0, kCameraModes - 1)]), true},
             {"CAR", target, true},
             {"LENGTH", app::Ui(g_whole ? "WHOLE RACE" : "LAST MINUTE"), true},
+            {"RESOLUTION", kVideoNames[std::clamp(int(g_resolution), 0, int(std::size(kVideoNames)) - 1)], true},
+            {"SAVE VIDEO", "", false},
             {"HIDE MENU", "", false},
             {"EXIT", "", false},
         };
@@ -990,8 +1344,95 @@ void DrawReplayHud() {
     }
 }
 
+// the recording's frame at the race's clock t, from the marks about it; -1 before the recording
+double AudioFrameAt(double t) {
+    if (g_marks.empty() || t < g_marks.front().clock) return -1;
+    auto it = std::upper_bound(g_marks.begin(), g_marks.end(), t, [](double v, const Mark& m) { return v < m.clock; });
+    const Mark& a = *(it - 1);
+    if (it == g_marks.end()) return double(a.frame);
+    const Mark& b = *it;
+    double span = b.clock - a.clock;
+    double s = span > 0 ? (t - a.clock) / span : 0;
+    return double(a.frame) + s * double(b.frame - a.frame);
+}
+
+// silence before the recording began (its first mark), so the sound starts with the picture
+std::vector<int16_t> SoundBetween(double from, double to) {
+    std::lock_guard lock(g_audio_lock);
+    std::vector<int16_t> out;
+    if (g_marks.empty() || to <= from) return out;
+    double a = AudioFrameAt(from), b = AudioFrameAt(to);
+    size_t lead = 0;
+    if (a < 0) {
+        lead = size_t(std::max(0.0, g_marks.front().clock - from) * kAudioRate);
+        a = double(g_marks.front().frame);
+    }
+    if (b < 0) return out;
+    uint64_t fa = std::max(uint64_t(a), g_pcm_base), fb = std::min(uint64_t(b), g_pcm_base + g_pcm.size() / 2);
+    out.assign(lead * 2, 0);
+    if (fb > fa) out.insert(out.end(), g_pcm.begin() + std::ptrdiff_t((fa - g_pcm_base) * 2),
+                            g_pcm.begin() + std::ptrdiff_t((fb - g_pcm_base) * 2));
+    return out;
+}
+
+void ReplayAudio(float* mix, uint32_t frames) {
+    using namespace audio;
+    if (g_active) {
+        // the game's own sound out, the recording's in
+        std::fill(mix, mix + size_t(frames) * kChannels, 0.0f);
+        float rate = g_audio_rate;
+        if (rate <= 0) {
+            g_audio_cursor = -1;
+            return;
+        }
+        std::lock_guard lock(g_audio_lock);
+        double want = AudioFrameAt(g_audio_t);
+        if (want < 0) return;
+        // kept to the picture: a cursor more than a tenth of a second off is moved to it
+        if (g_audio_cursor < 0 || std::fabs(g_audio_cursor - want) > kAudioRate / 10.0) g_audio_cursor = want;
+        const double step = double(rate) / kAudioDiv;
+        const uint64_t end = g_pcm_base + g_pcm.size() / 2;
+        for (uint32_t i = 0; i < frames; i++) {
+            double at = g_audio_cursor + step * i;
+            uint64_t f = uint64_t(at);
+            if (f < g_pcm_base || f + 1 >= end) continue;
+            float s = float(at - double(f));
+            size_t k = size_t(f - g_pcm_base) * 2;
+            float l = (g_pcm[k] * (1 - s) + g_pcm[k + 2] * s) / 32767.0f;
+            float r = (g_pcm[k + 1] * (1 - s) + g_pcm[k + 3] * s) / 32767.0f;
+            mix[size_t(i) * kChannels + FrontLeft] = l;
+            mix[size_t(i) * kChannels + FrontRight] = r;
+        }
+        g_audio_cursor += step * frames;
+        return;
+    }
+    if (!g_audio_rec) return;
+    std::lock_guard lock(g_audio_lock);
+    g_marks.push_back({g_audio_clock, g_pcm_base + g_pcm.size() / 2});
+    for (uint32_t i = 0; i + kAudioDiv <= frames; i += kAudioDiv) {
+        float l = 0, r = 0;
+        for (uint32_t k = 0; k < kAudioDiv; k++) {
+            const float* f = mix + size_t(i + k) * kChannels;
+            float c = f[Centre] * 0.707f;
+            l += f[FrontLeft] + c + f[BackLeft];
+            r += f[FrontRight] + c + f[BackRight];
+        }
+        auto pcm = [](float v) { return int16_t(std::lround(std::clamp(v / kAudioDiv, -1.0f, 1.0f) * 32767.0f)); };
+        g_pcm.push_back(pcm(l));
+        g_pcm.push_back(pcm(r));
+    }
+    if (g_pcm.size() / 2 > kAudioMaxFrames) {  // the oldest minute goes
+        size_t drop = size_t(kAudioRate) * 60;
+        g_pcm.erase(g_pcm.begin(), g_pcm.begin() + std::ptrdiff_t(drop * 2));
+        g_pcm_base += drop;
+        auto keep = std::find_if(g_marks.begin(), g_marks.end(), [](const Mark& m) { return m.frame >= g_pcm_base; });
+        g_marks.erase(g_marks.begin(), keep);
+    }
+}
+
 bool ReplayMenuHit(float x, float y) {
-    return g_menu_rect[2] > 0 && x >= g_menu_rect[0] && x < g_menu_rect[2] && y >= g_menu_rect[1] && y < g_menu_rect[3];
+    auto in = [x, y](const std::atomic<float>* r) { return r[2] > 0 && x >= r[0] && x < r[2] && y >= r[1] && y < r[3]; };
+    return in(g_menu_rect) || (g_post_race && in(g_button_rect));
 }
 
 }  // namespace game
@@ -1002,4 +1443,24 @@ X86_FUNC(sub_0025CC70) {
     uint32_t conn = ctx.ecx;
     __imp__sub_0025CC70(ctx, base);
     game::ReplayConnUpdated(conn);
+}
+
+// the camera mover's clear and set of the streamed place (see g_streaming_ours): skipped while the replay plays
+X86_EXTERN_FUNC(__imp__sub_00235CD0);
+X86_FUNC(sub_00235CD0) {
+    if (!game::ReplayActive() || game::ReplayStreaming()) return __imp__sub_00235CD0(ctx, base);
+    ctx.esp += 4;
+}
+
+X86_EXTERN_FUNC(__imp__sub_00235C80);
+X86_FUNC(sub_00235C80) {  // thiscall, five arguments
+    if (!game::ReplayActive()) return __imp__sub_00235C80(ctx, base);
+    ctx.esp += 4 + 0x14;
+}
+
+// ERestartRace's constructor, which restarts the race (thiscall, no arguments): the recording starts over
+X86_EXTERN_FUNC(__imp__sub_001A6DE0);
+X86_FUNC(sub_001A6DE0) {
+    game::ReplayRaceRestarted();
+    __imp__sub_001A6DE0(ctx, base);
 }

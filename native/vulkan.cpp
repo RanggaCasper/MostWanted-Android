@@ -31,6 +31,7 @@
 
 #include "app/app.h"
 #include "common/aspect.h"
+#include "common/video.h"
 #include "core/diag.h"
 #include "core/log.h"
 #include "d3d/gpu_frame.h"
@@ -1010,6 +1011,17 @@ public:
     void SyncLate(uint32_t data) override;
     bool DeliverLate(uint32_t data) override;
     void RecordLate(uint32_t data) override;
+    // a replay saved as a video (src/common/video.h): each presented game frame, before the UI, shrunk to the video's
+    // size and read back through a ring of buffers; handed to the encoder once the GPU is done with it
+    static constexpr uint32_t kCapSlots = 3;
+    Image cap_down_;
+    Buffer cap_rb_[kCapSlots];
+    uint64_t cap_fence_[kCapSlots] = {}, cap_n_[kCapSlots] = {};
+    uint32_t cap_w_ = 0, cap_h_ = 0, cap_slot_ = 0, cap_deliver_ = 0, cap_pending_ = 0;
+    uint64_t cap_next_n_ = 0;
+    bool cap_active_ = false;
+    void CaptureVideo(Target* t);
+    void DeliverVideo(bool wait);
     void Flush() override { if (!gpu_failed_) Submit(true, false); }
     void SetGamma(const uint8_t* ramp) override {
         if (gpu_failed_) return;
@@ -4132,6 +4144,63 @@ void VulkanBackend::SavePipelineCache() {
     cache_saved_ = size;
 }
 
+void VulkanBackend::DeliverVideo(bool wait) {
+    while (cap_pending_) {
+        uint32_t slot = cap_deliver_;
+        if (cap_fence_[slot] > Completed() && (!wait || !WaitValue(cap_fence_[slot]))) return;
+        video::Frame(cap_rb_[slot].mem.map, cap_w_, cap_h_, cap_n_[slot]);
+        cap_deliver_ = (slot + 1) % kCapSlots;
+        cap_pending_--;
+    }
+}
+
+void VulkanBackend::CaptureVideo(Target* t) {
+    if (video::Stopping()) {  // the replay is done: what is still read back goes to the encoder, then it ends
+        DeliverVideo(true);
+        video::Finish();
+    }
+    if (!video::Capturing()) {
+        if (cap_active_) {
+            for (Buffer& b : cap_rb_) Retire(b);
+            Retire(cap_down_);
+            cap_active_ = false;
+            cap_pending_ = 0;
+        }
+        return;
+    }
+    uint32_t w, h;
+    video::Size(w, h);
+    if (!cap_active_ || w != cap_w_ || h != cap_h_) {
+        for (Buffer& b : cap_rb_) Retire(b);
+        cap_w_ = w, cap_h_ = h;
+        cap_slot_ = cap_deliver_ = cap_pending_ = 0;
+        cap_next_n_ = 0;
+        cap_active_ = true;
+    }
+    DeliverVideo(false);
+    if (!t || t->depth) return;
+    if (cap_pending_ == kCapSlots) {  // the oldest, from frames already submitted, waited for
+        if (!WaitValue(cap_fence_[cap_deliver_])) return;
+        DeliverVideo(false);
+    }
+    uint32_t slot = cap_slot_;
+    if (!cap_rb_[slot].buf && !CreateBuffer(cap_rb_[slot], VkDeviceSize(w) * h * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true))
+        return;
+    uint32_t taps = std::max(1u, uint32_t(std::ceil(float(t->w) / float(w) - 1e-3f)));
+    if (!Shrink(t->img, w, h, cap_down_, taps)) return;
+    EndRender();
+    VkBufferImageCopy c{0, 0, 0, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {0, 0, 0}, {w, h, 1}};
+    vkCmdCopyImageToBuffer(Cb(), cap_down_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, cap_rb_[slot].buf, 1, &c);
+    VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    vkCmdPipelineBarrier(Cb(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
+    cap_fence_[slot] = value_ + 1;  // the next Submit carries it
+    cap_n_[slot] = cap_next_n_++;
+    cap_slot_ = (slot + 1) % kCapSlots;
+    cap_pending_++;
+}
+
 void VulkanBackend::Present(const Surface& front) {
     if (gpu_failed_) return;
     Target* t = EnsureTarget(front, false);
@@ -4140,6 +4209,7 @@ void VulkanBackend::Present(const Surface& front) {
         presented_[0] = t->data;
     }
     if (t && LatchCpuWrite(*t)) UploadTarget(*t, front);
+    if (cap_active_ || video::Busy()) CaptureVideo(t);
     if (ramp_dirty_) UploadGammaRamp();
     if (gpu_failed_) return;
     uint32_t index = 0;

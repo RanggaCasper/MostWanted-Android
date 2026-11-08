@@ -44,6 +44,7 @@ struct Options {
     bool rain_drops = true;   // the drops on the screen in the rain, the same
     bool yellow_tint = false;  // the game's yellow colour grading, src/game/game.cpp greys it when off
     bool night_mode = false;   // night time visual mod: nocturnal grading, headlights, dark sky, src/game/game.cpp
+    bool music_restored = false;  // once: the music switches an earlier build saved at 0 given back, src/game/game.cpp
     bool shader_preload = false;  // native/vulkan.cpp makes earlier runs' shaders and pipelines at the start
     bool motion_blur = true;   // the blur by speed and the nitrous' radial blur, src/game/game.cpp skips them when off
     // cheats, src/game/game.cpp's ApplyCheats
@@ -86,12 +87,14 @@ bool CinematicClean();  // on, its menu hidden or its path playing: the picture 
 bool CinematicPad(int port, const input::Pad& pad);  // the pad filter: true while the camera has the pad
 void DrawCinematicHud();                             // inside the ImGui frame: its menu, Start shows and hides it
 bool CinematicMenuHit(float x, float y);             // screen pixels on its menu: the touch controls leave them
-// the replay (src/game/replay.cpp): the race recorded as it runs, played again from the pause menu's icon or the panel
+// the replay (src/game/replay.cpp): the race recorded as it runs, played again from the pause menu's icon or the results
 void ReplayRequest(bool from_pause_menu = false);  // from the menu: leaving opens the pause menu again
 bool ReplayActive();
 void ReplayFrame(X86Context& ctx);  // game thread, the frame's start (cinematic.cpp's hook): records, or plays
 bool ReplayPad(int port, const input::Pad& pad);  // the pad filter: true while the replay has the pad
 void DrawReplayHud();                             // inside the ImGui frame: its menu and timeline
-bool ReplayMenuHit(float x, float y);             // screen pixels on its menu
+bool ReplayMenuHit(float x, float y);             // screen pixels on its menu, or the results' REPLAY
+bool ReplayStreaming();  // the replay itself sets the streamed place (replay.cpp's 0x235CD0 hook)
+void ReplayRaceRestarted();  // ERestartRace ran (replay.cpp's 0x1A6DE0 hook): the recording starts over
 
 }  // namespace game

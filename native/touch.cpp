@@ -1438,7 +1438,7 @@ bool OnEvent(const SDL_Event& e) {
                 }
                 // cinematic mode's menu takes its own touches (ImGui's), not the controls under it; the replay all of
                 // them, its controls are its menu and timeline
-                if (game::CinematicMenuHit(x, y)) return false;
+                if (game::CinematicMenuHit(x, y) || game::ReplayMenuHit(x, y)) return false;
                 if (game::ReplayActive() && !g_editing) return false;
                 FingerDown(e.tfinger.fingerID, x, y);
                 return true;

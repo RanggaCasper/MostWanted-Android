@@ -8,6 +8,7 @@
 
 #include "audio/output.h"
 #include "common/music.h"
+#include "common/replay_audio.h"
 #include "core/log.h"
 
 namespace audio {
@@ -46,6 +47,7 @@ void SDLCALL Feed(void* user, SDL_AudioStream* stream, int additional, int) {
     size_t want = size_t(std::max(additional, 0) / kFrameBytes) * 2;
     while (p.out.size() < want) {
         p.render(p.mix.data(), kBlock);
+        game::ReplayAudio(p.mix.data(), kBlock);  // recorded for a replay, or a replay's sound in its place
         music::Mix(p.mix.data(), kBlock);
         Fold(p.mix.data(), kBlock, g_mode == kOutputMono, p.out);
     }

@@ -10,6 +10,7 @@
 #include <vector>
 #include <unordered_map>
 
+#include "app/app.h"
 #include "common/aspect.h"
 #include "common/options.h"
 #include "core/log.h"
@@ -254,13 +255,53 @@ static bool MusicMayBegin() {
 // shares one buffer with its other sounds, so it can only be stopped in the game: the profile's switch at +0x78 (0x0DC6A0, the
 // option beside Interactive Music, +0x74, which goes on playing in pursuits). My Music plays at the
 // game's own sliders, menu music +0x54 and game music +0x58, and a song's beginning shows on EA Trax's banner (0x1443C0, as 0xB8590)
+// the engine's cutscenes (NIS: a rival's intro, the career's story) playing, counted at their start (0x214360) and end
+// (0x215CC0); none out of a race, whatever was missed
+std::atomic<int> g_nis{0};
+
+// The music is silent while a replay plays (replay.cpp), while the game loads and during the engine's cutscenes: EA Trax's switch and Interactive Music's (+0x74, the pursuits'
+// music) held at 0 and My Music at no level, given back as they were after; the engines and the rest play on. A build
+// before held both at 0 by default and they were saved so: given back once (music_restored)
 void MusicFrame(X86Context& ctx) {
     constexpr uint32_t kFeDatabase = 0x48EDD4, kProfile = 0x10, kEaTrax = 0x78, kMenuMusic = 0x54, kGameMusic = 0x58;
+    constexpr uint32_t kInteractiveMusic = 0x74;
     constexpr uint32_t kShowSong = 0x1443C0;
-    if (!music::HasSongs()) return;
     uint32_t db = kernel::R32(kFeDatabase);
     uint32_t profile = db && mem::IsCommitted(db + kProfile) ? kernel::R32(db + kProfile) : 0;
     if (!profile || !mem::IsCommitted(profile + kGameMusic)) return;
+    static uint32_t restored_in = 0;
+    if (!Opt().music_restored && restored_in != profile) {
+        kernel::W32(profile + kEaTrax, 1);
+        kernel::W32(profile + kInteractiveMusic, 1);
+        restored_in = profile;
+        if (Racing()) {  // a profile is surely the player's own by then, not the boot's default one
+            Opt().music_restored = true;
+            app::Save();
+        }
+    }
+    static bool muted = false;
+    static uint32_t saved_ea = 1, saved_interactive = 1;
+    // and while the game loads (its flow neither the front end, 3, nor a race, 6: 0x4936B8, see Racing)
+    uint32_t flow = mem::IsCommitted(0x4936B8) ? kernel::R32(0x4936B8) : 3;
+    bool loading = flow != 3 && flow != 6;
+    if (flow != 6) g_nis = 0;
+    if (ReplayActive() || loading || g_nis > 0) {
+        if (!muted) {
+            saved_ea = kernel::R32(profile + kEaTrax);
+            saved_interactive = kernel::R32(profile + kInteractiveMusic);
+            muted = true;
+        }
+        kernel::W32(profile + kEaTrax, 0);
+        kernel::W32(profile + kInteractiveMusic, 0);
+        if (music::HasSongs()) music::SetContext(MusicMayBegin(), Racing(), 0.0f);
+        return;
+    }
+    if (muted) {
+        kernel::W32(profile + kEaTrax, saved_ea);
+        kernel::W32(profile + kInteractiveMusic, saved_interactive);
+        muted = false;
+    }
+    if (!music::HasSongs()) return;
     static int source = -1;
     int now = music::Source();
     if (now == music::kMyMusic) {
@@ -703,3 +744,16 @@ namespace app {
 uint32_t ConsoleLanguage() { return 1; }
 
 }  // namespace app
+
+// a cutscene (NIS) started and ended, for the music (MusicFrame)
+X86_EXTERN_FUNC(__imp__sub_00214360);
+X86_FUNC(sub_00214360) {
+    game::g_nis++;
+    __imp__sub_00214360(ctx, base);
+}
+
+X86_EXTERN_FUNC(__imp__sub_00215CC0);
+X86_FUNC(sub_00215CC0) {
+    __imp__sub_00215CC0(ctx, base);
+    if (game::g_nis > 0) game::g_nis--;
+}
