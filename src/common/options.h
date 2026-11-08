@@ -86,5 +86,12 @@ bool CinematicClean();  // on, its menu hidden or its path playing: the picture 
 bool CinematicPad(int port, const input::Pad& pad);  // the pad filter: true while the camera has the pad
 void DrawCinematicHud();                             // inside the ImGui frame: its menu, Start shows and hides it
 bool CinematicMenuHit(float x, float y);             // screen pixels on its menu: the touch controls leave them
+// the replay (src/game/replay.cpp): the race recorded as it runs, played again from the pause menu's icon or the panel
+void ReplayRequest(bool from_pause_menu = false);  // from the menu: leaving opens the pause menu again
+bool ReplayActive();
+void ReplayFrame(X86Context& ctx);  // game thread, the frame's start (cinematic.cpp's hook): records, or plays
+bool ReplayPad(int port, const input::Pad& pad);  // the pad filter: true while the replay has the pad
+void DrawReplayHud();                             // inside the ImGui frame: its menu and timeline
+bool ReplayMenuHit(float x, float y);             // screen pixels on its menu
 
 }  // namespace game

@@ -1436,8 +1436,10 @@ bool OnEvent(const SDL_Event& e) {
                     size_t b = HitButton(x, y);
                     if (b == kButtonCount || kButtons[b].press != kPanel) return false;
                 }
-                // cinematic mode's menu takes its own touches (ImGui's), not the controls under it
+                // cinematic mode's menu takes its own touches (ImGui's), not the controls under it; the replay all of
+                // them, its controls are its menu and timeline
                 if (game::CinematicMenuHit(x, y)) return false;
+                if (game::ReplayActive() && !g_editing) return false;
                 FingerDown(e.tfinger.fingerID, x, y);
                 return true;
             }
@@ -1516,12 +1518,13 @@ void Apply(int port, input::Pad& pad) {
 constexpr uint64_t kCleanShownMs = 2500;
 #ifdef __ANDROID__
 bool Shown() {
+    if (game::ReplayActive()) return false;  // its own menu and timeline (ImGui's)
     if (Cinematic() && game::CinematicClean()) return NowMs() - g_touch_ms < kCleanShownMs;
     return !PadPlugged() || NowMs() - g_touch_ms < kShownMs;
 }
 #else
 // a PC plays on its keyboard and controllers: the controls only on a touch screen, a while after it is touched
-bool Shown() { return g_touch_ms && NowMs() - g_touch_ms < kShownMs; }
+bool Shown() { return !game::ReplayActive() && g_touch_ms && NowMs() - g_touch_ms < kShownMs; }
 #endif
 
 namespace {

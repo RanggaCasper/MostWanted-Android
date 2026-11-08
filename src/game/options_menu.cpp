@@ -152,10 +152,12 @@ constexpr int kAndroidSection = kSectionCount - 1;
 static_assert(kSectionCount <= kIconCount, "tools/option_icons.py draws an icon a section");
 // a section's icon in kIcons: the menu that holds them is Android's robot on Android, Tux on Linux (the icon after
 // the sections', tools/option_icons.py)
-// CINEMATIC MODE is an icon of the pause menu with no section of rows: it starts the photo mode (cinematic.cpp)
-constexpr int kCinematic = kSectionCount;
+// CINEMATIC MODE is an icon of the pause menu with no section of rows: it starts the photo mode (cinematic.cpp); so
+// is REPLAY, after it (replay.cpp), where the menu has a slot left for it
+constexpr int kCinematic = kSectionCount, kReplay = kSectionCount + 1;
 constexpr int IconOf(int section) {
     if (section == kCinematic) return kSectionCount + 1;  // the camera, after Tux
+    if (section == kReplay) return kSectionCount + 2;     // the replay's, after the camera
 #ifdef __ANDROID__
     return section;
 #else
@@ -163,7 +165,7 @@ constexpr int IconOf(int section) {
 #endif
 }
 static_assert(IconOf(kAndroidSection) < kIconCount, "tools/option_icons.py draws the Linux icon after the sections'");
-static_assert(IconOf(kCinematic) < kIconCount, "tools/option_icons.py draws the camera last");
+static_assert(IconOf(kReplay) < kIconCount, "tools/option_icons.py draws the camera, then the replay's, last");
 
 // a section's rows, its pages' one after the other; a page after the first opens with its name when it has no
 // heading of its own
@@ -201,7 +203,9 @@ std::string TitleCase(std::string text) {
 }
 
 std::string SectionTitle(int section) {
-    return TitleCase(app::Ui(section == kCinematic ? "CINEMATIC MODE" : kSections[section].name));
+    if (section == kCinematic) return TitleCase(app::Ui("CINEMATIC MODE"));
+    if (section == kReplay) return TitleCase(app::Ui("REPLAY"));
+    return TitleCase(app::Ui(kSections[section].name));
 }
 
 uint32_t Options() { return R32(R32(kFEDatabase) + 0x10); }
@@ -326,6 +330,8 @@ void IconReact(X86Context& ctx, uint8_t*) {
     uint32_t esp = ctx.esp;
     if (it != g_icons.end() && it->second == kCinematic) {
         if (R32(esp + 8) == kAccept) CinematicRequest(true);
+    } else if (it != g_icons.end() && it->second == kReplay) {
+        if (R32(esp + 8) == kAccept) ReplayRequest(true);
     } else if (it != g_icons.end() && it->second == kAndroidSection && g_android_react) {
         // a menu's: as OPTIONS beside it, and the options it opens are ANDROID OPTIONS'
         CallThis(ctx, ctx.ecx, g_android_react, {R32(esp + 4), R32(esp + 8), R32(esp + 12), R32(esp + 16), R32(esp + 20)});
@@ -1124,9 +1130,12 @@ X86_FUNC(sub_00128AB0) {
             g_icons.clear();
             uint32_t host = AddIcon(ctx, menu, kAndroidSection);
             PlaceBeside(menu, m.options_vtable, host);
-            // the pause menu's (in a race): CINEMATIC MODE after it
+            // the pause menu's (in a race): CINEMATIC MODE after it, then REPLAY
             if (&m == &kOptionsMenus[kPauseMenu] && host)
-                if (uint32_t cine = AddIcon(ctx, menu, kCinematic)) PlaceBeside(menu, m.options_vtable, cine, host);
+                if (uint32_t cine = AddIcon(ctx, menu, kCinematic)) {
+                    PlaceBeside(menu, m.options_vtable, cine, host);
+                    if (uint32_t replay = AddIcon(ctx, menu, kReplay)) PlaceBeside(menu, m.options_vtable, replay, cine);
+                }
         }
     }
     ctx.ecx = ecx;

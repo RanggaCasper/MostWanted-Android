@@ -248,7 +248,8 @@ enum RowId { kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kAudioOutp
              kAntiAliasing, kFpsPosition, kFpsTemps, kStickMode, kBloom, kFog, kDonate, kGithub, kYoutube, kFpsUsage,
              kReflections, kParticles, kRain, kRainDrops, kShadows, kRoadReflections,
              kCheatNos, kCheatSpeedbreaker, kCheatCash, kCheatNoPolice, kCheatUnlockAll,
-             kSkipMovies, kYellowTint, kNightMode, kMotionBlur, kShaderPreload, kCheatDragShift, kCheatNoTraffic };
+             kSkipMovies, kYellowTint, kNightMode, kMotionBlur, kShaderPreload, kCheatDragShift, kCheatNoTraffic,
+             kWatchReplay };
 
 using rows::Kind;
 using rows::Row;
@@ -309,6 +310,7 @@ constexpr Row kCheatRows[] = {
     {Kind::Value, kCheatUnlockAll, "UNLOCK ALL"},
     {Kind::Value, kCheatNoTraffic, "NO TRAFFIC"},
     {Kind::Value, kCheatDragShift, "AUTO SHIFT IN DRAG"},
+    {Kind::Link, kWatchReplay, "WATCH REPLAY"},  // the race again (replay.cpp), once it is over too
 };
 
 // the credits' names, an info row's id; as they are, untranslated
@@ -673,6 +675,12 @@ const char* LinkUrl(int id) {
     }
 }
 
+// the panel shut and the replay asked for (src/game/replay.cpp): the race paused under the panel, or over
+void WatchReplay() {
+    if (MenuOpen()) ToggleMenu();
+    game::ReplayRequest(false);
+}
+
 // label left, OPEN right; a tap, click, Enter or A anywhere on the row opens the page in the browser, or the touch
 // layout's editor
 void LinkRow(const Row& r) {
@@ -693,6 +701,7 @@ void LinkRow(const Row& r) {
     EndRow(box);
     if (!open) return;
     if (r.id == kTouchEdit) touch::EditLayout();
+    else if (r.id == kWatchReplay) WatchReplay();
     else if (const char* url = LinkUrl(r.id)) SDL_OpenURL(url);
 }
 
@@ -992,6 +1001,7 @@ std::string rows::Value(const Row& r, int step) {
 void rows::Activate(const Row& r) {
     if (r.kind == Kind::Link) {
         if (r.id == kTouchEdit) touch::EditLayout();
+        else if (r.id == kWatchReplay) WatchReplay();
         else if (const char* url = LinkUrl(r.id)) SDL_OpenURL(url);
     } else if (r.kind == Kind::Bind && g_capture < 0 && g_pad_capture < 0) {
         g_capture_slot = 0;
@@ -1161,6 +1171,7 @@ void DrawFpsCounter(double fps) {
 void DrawUi(double fps) {
     DrawFpsCounter(fps);
     game::DrawCinematicHud();
+    game::DrawReplayHud();
     ImGuiIO& io = ImGui::GetIO();
     if (MenuOpen()) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
     else io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;

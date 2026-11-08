@@ -806,6 +806,7 @@ bool CinematicMenuHit(float x, float y) {
 // the frame's render: the request taken, the camera stepped and set before any view's projection
 X86_EXTERN_FUNC(__imp__sub_000D8720);
 X86_FUNC(sub_000D8720) {
+    game::ReplayFrame(ctx);  // records the race, or plays it again (replay.cpp)
     if (game::g_reopen_menu) {
         game::g_reopen_menu = false;
         if (uint32_t feng = kernel::R32(game::kFEng)) {
@@ -815,7 +816,7 @@ X86_FUNC(sub_000D8720) {
             ctx.ecx = ecx;
         }
     }
-    if (game::g_request.exchange(false) && !game::g_active) {
+    if (game::g_request.exchange(false) && !game::g_active && !game::ReplayActive()) {
         game::Enter();
         if (!game::g_active && game::g_request_menu) game::g_reopen_menu = true;  // no camera: the menu back next frame
     }
@@ -827,10 +828,10 @@ X86_FUNC(sub_000D8720) {
 // 0x0D84C2) binds the frame with the world's depth surface again, and the next frame's first clear (colour and depth)
 // clears what is bound: skipped whole, the depth was never cleared, and once the camera moved the world failed the
 // depth test against the last frame's and the sky showed through, black below the horizon. FEng draws only while the
-// dword at 0x427A74 (read only at 0x0D85EC, never written) is set
+// dword at 0x427A74 (read only at 0x0D85EC, never written) is set. The replay hides them the same way
 X86_EXTERN_FUNC(__imp__sub_000D82D0);
 X86_FUNC(sub_000D82D0) {
-    if (!game::g_active) return __imp__sub_000D82D0(ctx, base);
+    if (!game::g_active && !game::ReplayActive()) return __imp__sub_000D82D0(ctx, base);
     constexpr uint32_t kDrawFEng = 0x427A74;
     uint32_t draw = kernel::R32(kDrawFEng);
     kernel::W32(kDrawFEng, 0);
@@ -840,6 +841,6 @@ X86_FUNC(sub_000D82D0) {
 
 X86_EXTERN_FUNC(__imp__sub_000D4860);
 X86_FUNC(sub_000D4860) {
-    if (!game::g_active) return __imp__sub_000D4860(ctx, base);
+    if (!game::g_active && !game::ReplayActive()) return __imp__sub_000D4860(ctx, base);
     ctx.esp += 4;
 }

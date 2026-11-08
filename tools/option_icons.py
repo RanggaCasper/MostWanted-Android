@@ -139,9 +139,26 @@ def camera():
     return img
 
 
+def replay():
+    # a play mark in a ring that turns back on itself, its arrowhead at the top: the pause menu's REPLAY
+    img, d = canvas()
+    cx, cy, r, w = 41, 40, 19, 4.5
+    d.arc(p(cx - r, cy - r, cx + r, cy + r), start=-60, end=230, fill=255, width=int(w * SCALE))
+    # the arrowhead at the arc's open end, pointing round it
+    a = math.radians(-60)
+    ex, ey = cx + r * math.cos(a), cy + r * math.sin(a)
+    tx, ty = -math.sin(a), math.cos(a)  # along the arc, the way it turns back
+    nx, ny = math.cos(a), math.sin(a)
+    h = 7.5
+    d.polygon(p(ex - tx * h * 0.9, ey - ty * h * 0.9, ex + nx * h, ey + ny * h, ex - nx * h, ey - ny * h), fill=255)
+    d.polygon(p(cx - 5.5, cy - 8, cx - 5.5, cy + 8, cx + 8.5, cy), fill=255)  # the play mark
+    return img
+
+
 # in the sections' order: graphics, controls, general, and the menu that holds them, Android's Options (3) or on
-# Linux its Linux Options (4); then the pause menu's CINEMATIC MODE (5, src/game/options_menu.cpp's IconOf)
-ICONS = [monitor, phone, sliders, android, tux, camera]
+# Linux its Linux Options (4); then the pause menu's CINEMATIC MODE (5) and REPLAY (6, src/game/options_menu.cpp's
+# IconOf)
+ICONS = [monitor, phone, sliders, android, tux, camera, replay]
 
 
 def compose(subject):

@@ -6,6 +6,7 @@
 // of a TextureInfo reading its name_<hash>.dxt (the PC tool's one car: car_name.dxt), as src/game/options_menu.cpp does its icons. A car taken out again (the app's
 // ModInstaller lists it in cars_removed.txt) stays in the saves that kept it, its key naming nothing now: it is taken out
 // of the list here, with the customization and career slots of its record.
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -157,7 +158,9 @@ void ModCarsFrame(X86Context& ctx) {
     uint32_t profile = db && mem::IsCommitted(db + kProfile) ? kernel::R32(db + kProfile) : 0;
     if (!profile || !mem::IsCommitted(profile + kPlayerCarDb + kEntries * kEntry - 1)) return;
     uint32_t table = profile + kPlayerCarDb;
-    if (kernel::R32(table) != 0) return;  // not filled yet: its first car is 0
+    // filled: 0x140890 empties every handle, then adds the default car first and gives it the handle 0x12345678
+    // (0x140905), then the stock cars. Older code took a first handle of 0 for filled and added no car to such a profile
+    if (kernel::R32(table) == kEmpty || !kernel::R32(table + kVehicle)) return;
     for (uint32_t key : removed) {
         for (uint32_t i = 0; i < kEntries; i++) {
             uint32_t entry = table + i * kEntry;
@@ -198,6 +201,7 @@ void ModCarsFrame(X86Context& ctx) {
             }
         }
         if (listed || free_slot == kEmpty) continue;
+        LOGR("mods: %08X added to the profile's cars", car.vehicle);
         uint32_t entry = table + free_slot * kEntry;
         kernel::W32(entry, free_slot);
         kernel::W32(entry + kFrontend, car.frontend);
@@ -210,7 +214,43 @@ void ModCarsFrame(X86Context& ctx) {
     }
 }
 
+// A stock car for an AI racer that would drive an add-on: their lower LODs, which an opponent is mostly seen in, are the
+// converter's thinning of a PC model and often torn, so opponents keep to the game's own cars. Taken from the profile's
+// stock list, an add-on's key or a removed one's never; a different one for each add-on asked in a row
+uint32_t StockStandIn(uint32_t vehicle) {
+    auto addon = [](uint32_t key) {
+        for (const Car& car : Cars())
+            if (car.vehicle == key) return true;
+        for (uint32_t removed : RemovedCars())
+            if (removed == key) return true;
+        return false;
+    };
+    if (!vehicle || !addon(vehicle)) return 0;
+    uint32_t db = kernel::R32(kFeDatabase);
+    uint32_t profile = db && mem::IsCommitted(db + kProfile) ? kernel::R32(db + kProfile) : 0;
+    if (!profile || !mem::IsCommitted(profile + kPlayerCarDb + kEntries * kEntry - 1)) return 0;
+    std::vector<uint32_t> stock;
+    for (uint32_t i = 0; i < kEntries; i++) {
+        uint32_t entry = profile + kPlayerCarDb + i * kEntry, key = kernel::R32(entry + kVehicle);
+        if (kernel::R32(entry) == kEmpty || !key || addon(key)) continue;
+        if (std::find(stock.begin(), stock.end(), key) == stock.end()) stock.push_back(key);
+    }
+    if (stock.empty()) return 0;
+    static uint32_t turn = 0;
+    uint32_t pick = stock[(vehicle + turn++ * 7) % stock.size()];
+    LOGR("mods: an AI racer's add-on %08X drives the stock %08X instead", vehicle, pick);
+    return pick;
+}
+
 }  // namespace game
+
+// An AI racer's vehicle made (thiscall, the pvehicle key; class 3, DRIVER_RACER, 0x172970), from the race's list of
+// opponents' cars (0x199024): an add-on's key is given a stock car's
+X86_EXTERN_FUNC(__imp__sub_00172730);
+X86_FUNC(sub_00172730) {
+    if (uint32_t stock = game::StockStandIn(kernel::R32(ctx.esp + 4))) kernel::W32(ctx.esp + 4, stock);
+    __imp__sub_00172730(ctx, base);
+}
 
 // Car types past the game's 84. The table is read from GLOBALB (0x25D279) and is longer for add-ons; these are the places
 // that know its length: its two searches, and three that took 84 and up for no car. 0x2A33EA's loop, a list of their names, stays at 84:

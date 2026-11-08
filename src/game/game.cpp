@@ -124,7 +124,9 @@ void ApplyGraphicsSwitches() {
     bool envmap = frame++ % every == 0;
     kernel::G<uint8_t>(kEnvMapSwitch) = envmap ? 1 : 0;
     kernel::G<uint8_t>(kParticleDrawSwitch) = Opt().particles ? 1 : 0;
-    kernel::W32(kCarShadowSwitch, Opt().shadows ? 1 : 0);
+    // none in a replay: a car's shadow takes its height over the road from where the sim last had it, and moved by the
+    // replay it hung in the air (replay.cpp)
+    kernel::W32(kCarShadowSwitch, Opt().shadows && !ReplayActive() ? 1 : 0);
     kernel::W32(kRoadReflectionSwitch, Opt().road_reflections ? 1 : 0);
     g_road_reflection = TargetData(kernel::R32(kRoadReflectionView + 0x60));
     // the cube is its six faces' memory, the first face's at its start
@@ -488,7 +490,8 @@ X86_FUNC(sub_00244B70) {
 X86_EXTERN_FUNC(__imp__sub_000D1440);
 X86_FUNC(sub_000D1440) {
     // and none while cinematic mode flies the camera: its moves are no speed of the car's
-    if (game::Opt().motion_blur && !game::CinematicActive()) return __imp__sub_000D1440(ctx, base);
+    if (game::Opt().motion_blur && !game::CinematicActive() && !game::ReplayActive())
+        return __imp__sub_000D1440(ctx, base);
     ctx.eax &= ~0xFFu;
     ctx.esp += 4;
 }
