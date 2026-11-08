@@ -19,7 +19,8 @@ void Pad(int port, input::Pad& pad) {
     const bool panel = app::MenuOpen();
     if (!panel && port == 0) input::Keyboard(pad);
     const bool consumed = OptionsMenuPad(port, pad);
-    if (panel || consumed)
+    const bool camera = !panel && CinematicPad(port, pad);
+    if (panel || consumed || camera)
         pad = input::Pad{.connected = pad.connected};
 }
 
@@ -103,6 +104,7 @@ const app::GameInfo app::kGame = {
                 {"rain", &game::Opt().rain, nullptr},
                 {"rain_drops", &game::Opt().rain_drops, nullptr},
                 {"yellow_tint", &game::Opt().yellow_tint, nullptr},
+                {"night_mode", &game::Opt().night_mode, nullptr},
                 {"motion_blur", &game::Opt().motion_blur, nullptr},
                 {"shader_preload", &game::Opt().shader_preload, nullptr},
                 {"cheat_nos", &game::Opt().cheat_nos, nullptr},

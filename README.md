@@ -112,6 +112,16 @@ The SDK is vendored in `sdk/`, at the upstream commit in `sdk/UPSTREAM_COMMIT`, 
 
 `tools/car_mod.py <iso> <mod folder> <out>` converts one PC car on the PC, as Mods Loader does on the phone.
 
+## Linux
+The game also builds and runs natively on Linux (x86-64), from the same sources: the Vulkan renderer, sound, controllers and settings are the Android version's, with a desktop window in place of the phone's screen. Linux builds from source.
+
+- Requirements: a 64-bit distribution with a Vulkan 1.1 driver (Mesa or NVIDIA), and Clang, CMake, Ninja, Git, pkg-config, Python 3 and the Vulkan loader and headers. SDL3 is taken from the system when it has 3.2 or newer, else downloaded and built in. `build.sh` lists the packages for Arch, Debian/Ubuntu and Fedora when something is missing.
+- Put `default.xbe` with the game files, or the disc image (`.iso`), in `assets/`, then run `./build.sh` (`./build.sh debug` for the info lines in the log). It builds the recompiler, recompiles the xbe into `generated/game`, then builds `out/build/linux/mostwanted`. The first build compiles the whole game and takes 15 to 60 minutes.
+- Run `out/build/linux/mostwanted`. The game is found in an `assets` or `iso` folder beside the executable or in any folder above it, so the repo's own `assets` works as it is.
+- Settings (`mostwanted.toml`, `android.toml`, `layout.toml`), saves (`hdd`), logs and the shader cache are written beside the executable.
+- Keyboard, mouse (in the settings panel) and controllers through SDL3, on Wayland or X11. F10 opens the settings panel, F11 or Alt+Enter switches between windowed and full screen. `display_mode` (`fullscreen`, `borderless`, `windowed`) with `width` and `height` in `mostwanted.toml` set the window.
+- The game's menus get LINUX OPTIONS in place of ANDROID OPTIONS. The touch controls show only on a touch screen, after it is touched.
+
 ## Credits
 - [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) by TGP482: the static recompiler and the portable runtime (Xbox kernel, XDK libraries and Direct3D 8) this port is built on.
 - [Black-Android](https://github.com/RanggaCasper/Black-Android) and [ShaolinMonks-Android](https://github.com/RanggaCasper/ShaolinMonks-Android) by RanggaCasper: the Android host this port is built from.

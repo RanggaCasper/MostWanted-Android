@@ -105,6 +105,7 @@ struct OptionsMenu {
     uint32_t after_icons, options_vtable, options_react;
 };
 constexpr OptionsMenu kOptionsMenus[] = {{0x104C0F, 0x3D534C, 0x0E3F30}, {0x105A5B, 0x3D537C, 0x0EEC30}};
+constexpr size_t kPauseMenu = 1;
 constexpr uint32_t kTemplateTexture = 0xF37AF144;  // the Audio icon
 constexpr uint32_t kIconHashes = 0x52430000;       // ours, "RC" and the section
 constexpr uint32_t kStringHash = 0x157E40;         // bStringHash (text), cdecl
@@ -140,10 +141,29 @@ struct Section {
     std::vector<int> pages;
 };
 // the last is the menu that holds them, the main menu's icon
-const Section kSections[] = {{"GRAPHICS", {0}}, {"CONTROLS", {1, 3, 4}}, {"GENERAL", {2, 5}}, {"ANDROID OPTIONS", {}}};
+#ifdef __ANDROID__
+constexpr const char* kHostOptions = "ANDROID OPTIONS";
+#else
+constexpr const char* kHostOptions = "LINUX OPTIONS";
+#endif
+const Section kSections[] = {{"GRAPHICS", {0}}, {"CONTROLS", {1, 3, 4}}, {"GENERAL", {2, 5}}, {kHostOptions, {}}};
 constexpr int kSectionCount = int(std::size(kSections));
 constexpr int kAndroidSection = kSectionCount - 1;
 static_assert(kSectionCount <= kIconCount, "tools/option_icons.py draws an icon a section");
+// a section's icon in kIcons: the menu that holds them is Android's robot on Android, Tux on Linux (the icon after
+// the sections', tools/option_icons.py)
+// CINEMATIC MODE is an icon of the pause menu with no section of rows: it starts the photo mode (cinematic.cpp)
+constexpr int kCinematic = kSectionCount;
+constexpr int IconOf(int section) {
+    if (section == kCinematic) return kSectionCount + 1;  // the camera, after Tux
+#ifdef __ANDROID__
+    return section;
+#else
+    return section == kAndroidSection ? kSectionCount : section;
+#endif
+}
+static_assert(IconOf(kAndroidSection) < kIconCount, "tools/option_icons.py draws the Linux icon after the sections'");
+static_assert(IconOf(kCinematic) < kIconCount, "tools/option_icons.py draws the camera last");
 
 // a section's rows, its pages' one after the other; a page after the first opens with its name when it has no
 // heading of its own
@@ -180,7 +200,9 @@ std::string TitleCase(std::string text) {
     return text;
 }
 
-std::string SectionTitle(int section) { return TitleCase(app::Ui(kSections[section].name)); }
+std::string SectionTitle(int section) {
+    return TitleCase(app::Ui(section == kCinematic ? "CINEMATIC MODE" : kSections[section].name));
+}
 
 uint32_t Options() { return R32(R32(kFEDatabase) + 0x10); }
 
@@ -283,7 +305,7 @@ uint32_t MakeTexture(X86Context& ctx, int section) {
 
     uint32_t size = kIconSize, shift = Log2(size);
     uint32_t data = mem::AllocContiguous(size * size * 4, 0, 0xFFFFFFFF, 0x1000);
-    const uint32_t* src = kIcons[section];
+    const uint32_t* src = kIcons[IconOf(section)];
     for (uint32_t y = 0; y < size; y++)
         for (uint32_t x = 0; x < size; x++) W32(data + Swizzle(x, y) * 4, src[y * size + x]);
     uint32_t d3d = plat + kD3D;
@@ -302,7 +324,9 @@ uint32_t MakeTexture(X86Context& ctx, int section) {
 void IconReact(X86Context& ctx, uint8_t*) {
     auto it = g_icons.find(ctx.ecx);
     uint32_t esp = ctx.esp;
-    if (it != g_icons.end() && it->second == kAndroidSection && g_android_react) {
+    if (it != g_icons.end() && it->second == kCinematic) {
+        if (R32(esp + 8) == kAccept) CinematicRequest(true);
+    } else if (it != g_icons.end() && it->second == kAndroidSection && g_android_react) {
         // a menu's: as OPTIONS beside it, and the options it opens are ANDROID OPTIONS'
         CallThis(ctx, ctx.ecx, g_android_react, {R32(esp + 4), R32(esp + 8), R32(esp + 12), R32(esp + 16), R32(esp + 20)});
         if (R32(esp + 8) == kAccept) g_android_next = true;
@@ -312,12 +336,13 @@ void IconReact(X86Context& ctx, uint8_t*) {
     ctx.esp = esp + 4 + 0x14;
 }
 
-// ANDROID OPTIONS' node in the scroller's list (option + 4: next, previous) moved to after OPTIONS'; it was added last
-void PlaceBeside(uint32_t menu, uint32_t options_vtable) {
+// an icon of ours (the option, its list node at + 4: next, previous) moved in the scroller's list to after the
+// option the vtable names (OPTIONS), or after another of ours; it was added last
+void PlaceBeside(uint32_t menu, uint32_t options_vtable, uint32_t option, uint32_t after = 0) {
     uint32_t head = menu + 0x2C + 4, ours = 0, target = 0;  // the scroller (+0x2C), its list (+4)
     for (uint32_t n = R32(head), k = 0; n && n != head && k < 64; n = R32(n), k++) {
-        if (R32(n - 4) == g_icon_vtable) ours = n;
-        else if (R32(n - 4) == options_vtable) target = n;
+        if (n - 4 == option) ours = n;
+        else if (after ? n - 4 == after : R32(n - 4) == options_vtable) target = n;
     }
     if (!ours || !target) return;
     // React at once on Accept, as OPTIONS does (+0x45: the pause menu's icons, 0x0EEEC1; the scroller's 0x139884)
@@ -345,22 +370,28 @@ bool SlotFree(X86Context& ctx, uint32_t menu) {
     return CallGuest(ctx, kFindImage, {R32(scroller + kScrollerPackage), hash}) != 0;
 }
 
-// the icons of sections first to last, after the menu's own
-void AddIcons(X86Context& ctx, uint32_t menu, int first, int last) {
+// one icon of ours after the menu's own, 0 when the menu has no slot left for it
+uint32_t AddIcon(X86Context& ctx, uint32_t menu, int section) {
     if (!g_icon_vtable) {
         g_icon_vtable = mem::AllocSystem(8);
         W32(g_icon_vtable, kIconDtor);
         W32(g_icon_vtable + 4, dispatch::HostThunk(IconReact));
     }
+    if (!SlotFree(ctx, menu)) return 0;
+    uint32_t option = CallGuest(ctx, kNew, {kIconOptionSize});
+    if (!option) return 0;
+    CallThis(ctx, option, kIconCtor, {kIconHashes + uint32_t(section), 0, 0});
+    W32(option, g_icon_vtable);
+    g_icons[option] = section;
+    CallThis(ctx, menu, kAddIcon, {option});
+    return option;
+}
+
+// the icons of sections first to last
+void AddIcons(X86Context& ctx, uint32_t menu, int first, int last) {
     g_icons.clear();
-    for (int section = first; section < last && SlotFree(ctx, menu); section++) {
-        uint32_t option = CallGuest(ctx, kNew, {kIconOptionSize});
-        if (!option) break;
-        CallThis(ctx, option, kIconCtor, {kIconHashes + uint32_t(section), 0, 0});
-        W32(option, g_icon_vtable);
-        g_icons[option] = section;
-        CallThis(ctx, menu, kAddIcon, {option});
-    }
+    for (int section = first; section < last; section++)
+        if (!AddIcon(ctx, menu, section)) break;
 }
 
 // ---- the rows
@@ -727,6 +758,7 @@ auto GraphicsFields() {
         o.rain,
         o.rain_drops,
         o.yellow_tint,
+        o.night_mode,
         o.motion_blur,
         o.screen_filter
     );
@@ -1062,7 +1094,24 @@ X86_FUNC(sub_000C5900) {
         return;
     }
     uint32_t page = hash - kIconHashes;
-    if (page >= uint32_t(kIconCount)) return __imp__sub_000C5900(ctx, base);
+    if (page >= uint32_t(kIconCount)) {
+        __imp__sub_000C5900(ctx, base);
+        uint32_t tex = ctx.eax;
+        if (tex) {
+            uint32_t data = TextureDataFromInfo(tex);
+            if (data) {
+                // SKY_MIDDAY_A_CLOUDS_A (0x94D70856), SKY_SUNSET_A_CLOUDS_A (0xBAB91800)
+                if (hash == 0x94D70856u || hash == 0xBAB91800u) {
+                    game::g_sky_clouds_a_data = data;
+                }
+                // SKY_MIDDAY_A_CLOUDS_B (0x94D70857), SKY_SUNSET_A_CLOUDS_B (0xBAB91801)
+                else if (hash == 0x94D70857u || hash == 0xBAB91801u) {
+                    game::g_sky_clouds_b_data = data;
+                }
+            }
+        }
+        return;
+    }
     if (!g_textures[page]) g_textures[page] = MakeTexture(ctx, int(page));
     ctx.eax = g_textures[page];
     ctx.esp += 4;
@@ -1086,8 +1135,12 @@ X86_FUNC(sub_00128AB0) {
             if (from != m.after_icons) continue;
             g_android_next = false;
             g_android_react = m.options_react;
-            AddIcons(ctx, menu, kAndroidSection, kSectionCount);
-            PlaceBeside(menu, m.options_vtable);
+            g_icons.clear();
+            uint32_t host = AddIcon(ctx, menu, kAndroidSection);
+            PlaceBeside(menu, m.options_vtable, host);
+            // the pause menu's (in a race): CINEMATIC MODE after it
+            if (&m == &kOptionsMenus[kPauseMenu] && host)
+                if (uint32_t cine = AddIcon(ctx, menu, kCinematic)) PlaceBeside(menu, m.options_vtable, cine, host);
         }
     }
     ctx.ecx = ecx;

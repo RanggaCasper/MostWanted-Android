@@ -157,12 +157,13 @@ bool KeyboardPackage(uint32_t p) { return PackageNamed(p, "Keyboard"); }
 
 // The keys are in groups, which FEngTestForIntersection leaves out (it tests an object's own place, in its group's
 // units): a key is tested as drawn, by its cached render object's (+0x58) transform in the front end's 640x480 (its
-// size at +0x30 and +0x44, its middle at +0x60 and +0x64). That 640x480 is drawn into the middle 576x448 of FEng's
-// screen (the screen transform, 0x0D4888: 576 / width across and 448 / 480 down), times the front end's scale at
-// 0x427BFC (the profile's, 1 on the disc's defaults)
+// size at +0x30 and +0x44, its middle at +0x60 and +0x64). That 640x480 is drawn into the middle of FEng's screen by
+// the screen transform (0x0D4888: 0x3D3534 / width across and 0x3D3530 / 480 down; the console's 576 and 448, made
+// 640 and 480 by game.cpp's FullFrameFrontEnd), times the front end's scale at 0x427BFC (the profile's, 1 on the
+// disc's defaults)
 constexpr uint32_t kRenderObject = 0x58;
 constexpr uint32_t kRenderWidth = 0x30, kRenderHeight = 0x44, kRenderX = 0x60, kRenderY = 0x64;
-constexpr float kSafeAcross = 576.0f / 640.0f, kSafeDown = 448.0f / 480.0f;
+constexpr uint32_t kSafeWidth = 0x3D3534, kSafeHeight = 0x3D3530;
 constexpr uint32_t kFeScale = 0x427BFC;
 
 float PeekFloat(uint32_t va) {
@@ -197,7 +198,10 @@ uint32_t PickKey(X86Context& ctx, uint32_t p) {
     float aspect = Aspect(), across = aspect >= 1.5f ? 1.0f : 480.0f * aspect / 640.0f;
     float scale = PeekFloat(kFeScale);
     if (!(scale > 0.1f && scale < 2.0f)) scale = 1.0f;
-    float x = float(g_x) / (kSafeAcross * across * scale) + 320.0f, y = float(g_y) / (kSafeDown * scale) + 240.0f;
+    float safe_across = PeekFloat(kSafeWidth) / 640.0f, safe_down = PeekFloat(kSafeHeight) / 480.0f;
+    if (!(safe_across > 0.5f && safe_across <= 1.0f)) safe_across = 1.0f;
+    if (!(safe_down > 0.5f && safe_down <= 1.0f)) safe_down = 1.0f;
+    float x = float(g_x) / (safe_across * across * scale) + 320.0f, y = float(g_y) / (safe_down * scale) + 240.0f;
     uint32_t key = KeyAt(x, y, Peek(p + kPackageObjects), -1, budget);
     if (!key || key == kernel::R32(p + kCurrentButton)) return key;
     uint32_t ecx = ctx.ecx;

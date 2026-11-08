@@ -43,6 +43,10 @@
 #include "kernel/memory.h"
 #include "vk_shader.h"
 
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 namespace gpu {
 
 namespace {
@@ -806,6 +810,11 @@ void FillSurfaceConstants(const State& s, GuestExtent size, DrawConstants& c) {
     c.surf[1] = float(size.h);
     c.surf[2] = 1.0f / s.zscale;
     Color(s.rs[kRsFogColor], c.fog_color);
+    if (game::Opt().night_mode) {
+        c.fog_color[0] *= 0.12f;
+        c.fog_color[1] *= 0.16f;
+        c.fog_color[2] *= 0.28f;
+    }
     c.misc[0] = float(SimpleState(s, kMAlphaRef) & 0xFF);
     c.misc[1] = SimpleState(s, kMAlphaTestEnable) ? float(CmpIndex(SimpleState(s, kMAlphaFunc))) : kAlphaTestAlways;
     c.misc[2] = float(CmpIndex(s.rs[kRsShadowFunc]));
@@ -1153,6 +1162,7 @@ private:
     VkImageView BindFrameRegion(int stage, const TextureDesc& d, DrawTextures& stages);
     bool CreateTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, uint64_t key);
     void UploadTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, const uint8_t* p, const uint32_t* colours);
+    void EnsureNightSky();
     void BuildPipelineKey(const State& s, const Assembled& a, const DrawShaders& sh, PsoKey& k);
     void KeyDepthStencil(const State& s, const Assembled& a, PsoKey& k);
     void ClearTarget(Target& t, const State& s, uint32_t count, const uint8_t* rects, uint32_t flags, uint32_t color,
@@ -1289,6 +1299,8 @@ private:
     // A dark grey cube for CAR REFLECTIONS off, black for ROAD REFLECTIONS off
     Image env_off_;
     Image road_off_;
+    Image night_sky_;
+    bool night_sky_loaded_ = false;
     VkSampler linear_ = VK_NULL_HANDLE, point_ = VK_NULL_HANDLE;
     VkDescriptorPool ui_pool_ = VK_NULL_HANDLE;
     bool ui_ = false;
@@ -1369,11 +1381,13 @@ bool VulkanBackend::CreateSurface() {
     uint32_t epoch = host::SurfaceEpoch();
     // Android has not handed the window back yet (resuming, or a surface change): wait for it without asking SDL,
     // which only fails, and log the outage once, not every present
+#ifdef __ANDROID__
     SDL_PropertiesID props = SDL_GetWindowProperties(host::Window());
     if (!SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr)) {
         if (surface_failures_++ == 0) LOGI("vulkan: waiting for Android's window");
         return false;
     }
+#endif
     if (!SDL_Vulkan_CreateSurface(host::Window(), instance_, nullptr, &surface_)) {
         surface_ = VK_NULL_HANDLE;
         if (surface_failures_++ == 0) LOGE("vulkan: no surface: %s", SDL_GetError());
@@ -1395,6 +1409,20 @@ bool VulkanBackend::PickDevice() {
     vkEnumeratePhysicalDevices(instance_, &n, nullptr);
     std::vector<VkPhysicalDevice> pds(n);
     vkEnumeratePhysicalDevices(instance_, &n, pds.data());
+#ifndef __ANDROID__
+    // a PC with two GPUs: the discrete one first, the integrated after (llvmpipe last)
+    auto rank = [](VkPhysicalDevice pd) {
+        VkPhysicalDeviceProperties p;
+        vkGetPhysicalDeviceProperties(pd, &p);
+        switch (p.deviceType) {
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU: return 0;
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU: return 1;
+            case VK_PHYSICAL_DEVICE_TYPE_CPU: return 3;
+            default: return 2;
+        }
+    };
+    std::stable_sort(pds.begin(), pds.end(), [&](VkPhysicalDevice a, VkPhysicalDevice b) { return rank(a) < rank(b); });
+#endif
     // rejections are reported, not warned: release logs drop warnings and these are what a bug report needs
     if (pds.empty()) LOGE("vulkan: the driver lists no GPU");
     for (VkPhysicalDevice pd : pds) {
@@ -1560,6 +1588,15 @@ bool VulkanBackend::CreateSwapchain() {
         w = int(caps.currentExtent.width);
         h = int(caps.currentExtent.height);
     }
+#ifndef __ANDROID__
+    // X11 and most desktop drivers fix the extent to the window's; Wayland leaves it to the app (0xFFFFFFFF)
+    if (caps.currentExtent.width != 0xFFFFFFFFu) {
+        w = int(caps.currentExtent.width);
+        h = int(caps.currentExtent.height);
+    }
+    w = std::clamp(w, int(caps.minImageExtent.width), int(std::max(caps.maxImageExtent.width, 1u)));
+    h = std::clamp(h, int(caps.minImageExtent.height), int(std::max(caps.maxImageExtent.height, 1u)));
+#endif
     if (w <= 0 || h <= 0) return false;
     vsync_ = app::Get().vsync;
     uint32_t pn = 0;
@@ -3304,6 +3341,84 @@ VkImageView VulkanBackend::BindGuestTexture(const State& s, int stage, const Tex
     return t.img.view;
 }
 
+void VulkanBackend::EnsureNightSky() {
+    if (night_sky_loaded_) return;
+    night_sky_loaded_ = true;
+
+    namespace fs = std::filesystem;
+    std::vector<fs::path> paths = {
+        "assets/night_sky.png",
+        "assets/textures/night_sky.png",
+        fs::path(app::ExeDir()) / "assets" / "night_sky.png",
+        fs::path(app::ExeDir()) / "assets" / "textures" / "night_sky.png",
+        fs::path(app::ExeDir()) / ".." / ".." / "assets" / "night_sky.png",
+        fs::path(app::ExeDir()) / ".." / "assets" / "night_sky.png"
+    };
+
+    int w = 0, h = 0, comp = 0;
+    uint8_t* pixels = nullptr;
+    for (const auto& p : paths) {
+        std::error_code ec;
+        if (fs::exists(p, ec)) {
+            pixels = stbi_load(p.string().c_str(), &w, &h, &comp, 4);
+            if (pixels) {
+                LOGI("night sky: loaded %s (%dx%d)", p.string().c_str(), w, h);
+                break;
+            }
+        }
+    }
+
+    std::vector<uint8_t> gen_buf;
+    if (!pixels) {
+        w = 1024;
+        h = 512;
+        gen_buf.resize(size_t(w) * h * 4, 0);
+        uint32_t seed = 42;
+        auto rnd = [&]() -> uint32_t {
+            seed = seed * 1664525u + 1013904223u;
+            return seed;
+        };
+        for (int i = 0; i < 2000; i++) {
+            uint32_t x = rnd() % w;
+            uint32_t y = rnd() % h;
+            uint8_t br = 180 + (rnd() % 76);
+            size_t idx = (size_t(y) * w + x) * 4;
+            gen_buf[idx + 0] = br;
+            gen_buf[idx + 1] = br;
+            gen_buf[idx + 2] = br;
+            gen_buf[idx + 3] = br;
+        }
+        pixels = gen_buf.data();
+        LOGI("night sky: generated procedural starfield (%dx%d)", w, h);
+    }
+
+    // Convert RGBA to BGRA
+    for (int i = 0; i < w * h; i++) {
+        std::swap(pixels[i * 4 + 0], pixels[i * 4 + 2]);
+    }
+
+    if (!CreateImage(night_sky_, kBgra, w, h, 1, 1, 1,
+                     VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                     VK_IMAGE_VIEW_TYPE_2D)) {
+        LOGE("night sky: failed to create Vulkan image");
+        if (pixels != gen_buf.data()) stbi_image_free(pixels);
+        return;
+    }
+
+    Transition(night_sky_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    Alloc a = Upload(VkDeviceSize(w) * h * 4, 16);
+    if (a.cpu) {
+        std::memcpy(a.cpu, pixels, size_t(w) * h * 4);
+        VkBufferImageCopy c{a.off, 0, 0, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {0, 0, 0}, {uint32_t(w), uint32_t(h), 1}};
+        vkCmdCopyBufferToImage(Cb(), a.buf, night_sky_.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+    }
+    Transition(night_sky_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    if (pixels != gen_buf.data()) {
+        stbi_image_free(pixels);
+    }
+}
+
 VkImageView VulkanBackend::BindTexture(const State& s, int stage, DrawTextures& stages) {
     TexInfo& info = stages.info[stage];
     info = {};
@@ -3331,6 +3446,16 @@ VkImageView VulkanBackend::BindTexture(const State& s, int stage, DrawTextures& 
         return env_off_.view;
     if (!d.cube && !game::Opt().road_reflections && d.data && d.data == game::g_road_reflection.load())
         return road_off_.view;
+    if (game::Opt().night_mode && !d.cube && d.data &&
+        (d.data == game::g_sky_clouds_a_data.load() ||
+         d.data == game::g_sky_clouds_b_data.load())) {
+        EnsureNightSky();
+        if (night_sky_) {
+            stages.fmt[stage] = night_sky_.fmt;
+            stages.levels[stage] = night_sky_.levels;
+            return night_sky_.view;
+        }
+    }
     if (tit != targets_.end() && d.cube && !fi.depth && !fi.compressed)
         if (VkImageView v = BindCubeTargets(stage, d, stages)) return v;
     return BindGuestTexture(s, stage, d, fi, stages);

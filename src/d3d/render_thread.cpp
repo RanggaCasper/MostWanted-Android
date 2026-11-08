@@ -2,7 +2,11 @@
 // takes at call time (state changes, resource headers, indices, rects) and goes on; vertex, texture and surface memory
 // are read when the draw runs, as the console's GPU reads them after the call returns. The XDK's fences, busy checks
 // and locks wait for that.
+#if defined(__aarch64__)
 #include <arm_neon.h>
+#else
+#include <emmintrin.h>
+#endif
 #include <pthread.h>
 
 #include <algorithm>
@@ -98,6 +102,7 @@ std::vector<Range> StateRanges() {
 }
 
 // equal bytes, 16 at a time: most of the state is compared on every draw
+#if defined(__aarch64__)
 bool Same(const uint8_t* a, const uint8_t* b, size_t n) {
     size_t i = 0;
     uint8x16_t diff = vdupq_n_u8(0);
@@ -105,14 +110,29 @@ bool Same(const uint8_t* a, const uint8_t* b, size_t n) {
     if (vmaxvq_u8(diff)) return false;
     return i == n || !std::memcmp(a + i, b + i, n - i);
 }
+#else
+bool Same(const uint8_t* a, const uint8_t* b, size_t n) {
+    size_t i = 0;
+    __m128i diff = _mm_setzero_si128();
+    for (; i + 16 <= n; i += 16)
+        diff = _mm_or_si128(diff, _mm_xor_si128(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + i)),
+                                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + i))));
+    if (_mm_movemask_epi8(_mm_cmpeq_epi8(diff, _mm_setzero_si128())) != 0xFFFF) return false;
+    return i == n || !std::memcmp(a + i, b + i, n - i);
+}
+#endif
 
 constexpr size_t kPiece = 64;  // bytes compared and sent at once
 
 // equal 64 byte pieces, the scan over the state on every draw
 bool SamePiece(const uint8_t* a, const uint8_t* b) {
+#if defined(__aarch64__)
     uint8x16_t diff = vdupq_n_u8(0);
     for (size_t i = 0; i < kPiece; i += 16) diff = vorrq_u8(diff, veorq_u8(vld1q_u8(a + i), vld1q_u8(b + i)));
     return vmaxvq_u8(diff) == 0;
+#else
+    return Same(a, b, kPiece);
+#endif
 }
 
 using Clock = std::chrono::steady_clock;

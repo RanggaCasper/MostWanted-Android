@@ -46,7 +46,11 @@ namespace {
 std::atomic<uint64_t> g_capture_ms{0};  // PressedKey
 std::atomic<bool> g_settle{false};
 std::atomic<bool> g_keyboard{false};  // the keyboard or mouse used last
+#ifdef __ANDROID__
 std::atomic<bool> g_touch{true};      // the touch controls used last, not a controller or the keys
+#else
+std::atomic<bool> g_touch{false};     // a PC starts on its keyboard and controllers
+#endif
 constexpr uint64_t kTapMs = 80;
 constexpr uint64_t kCaptureMs = 250;  // PressedKey asked this recently: a key capture is up
 // The wheel binds as two keys, codes no key has. A notch holds what is bound to it for one tap.
@@ -95,10 +99,11 @@ constexpr Target kActions[] = {
     {{"thumb_left", "LEFT THUMB", "C"}, 14},
     {{"thumb_right", "RIGHT THUMB", "V"}, 15},
     {{"settings_panel", "SETTINGS PANEL", "F10"}, kHostKey},
-    {{"look_up", "RIGHT STICK UP", "Numpad8"}, 20},
-    {{"look_down", "RIGHT STICK DOWN", "Numpad5"}, 21},
-    {{"look_left", "RIGHT STICK LEFT", "Numpad4"}, 22},
-    {{"look_right", "RIGHT STICK RIGHT", "Numpad6"}, 23},
+    // the numpad's, and T F G H beside the move keys for a laptop, which has none
+    {{"look_up", "RIGHT STICK UP", "Numpad8,T"}, 20},
+    {{"look_down", "RIGHT STICK DOWN", "Numpad5,G"}, 21},
+    {{"look_left", "RIGHT STICK LEFT", "Numpad4,F"}, 22},
+    {{"look_right", "RIGHT STICK RIGHT", "Numpad6,H"}, 23},
 };
 constexpr size_t kCount = std::size(kActions);
 constexpr size_t HostAction(std::string_view id) {
@@ -1422,6 +1427,8 @@ bool OnEvent(const SDL_Event& e) {
                     size_t b = HitButton(x, y);
                     if (b == kButtonCount || kButtons[b].press != kPanel) return false;
                 }
+                // cinematic mode's menu takes its own touches (ImGui's), not the controls under it
+                if (game::CinematicMenuHit(x, y)) return false;
                 FingerDown(e.tfinger.fingerID, x, y);
                 return true;
             }
@@ -1496,7 +1503,12 @@ void Apply(int port, input::Pad& pad) {
     if (used) pad.connected = true;
 }
 
+#ifdef __ANDROID__
 bool Shown() { return !PadPlugged() || NowMs() - g_touch_ms < kShownMs; }
+#else
+// a PC plays on its keyboard and controllers: the controls only on a touch screen, a while after it is touched
+bool Shown() { return g_touch_ms && NowMs() - g_touch_ms < kShownMs; }
+#endif
 
 namespace {
 
