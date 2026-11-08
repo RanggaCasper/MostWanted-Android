@@ -1096,20 +1096,6 @@ X86_FUNC(sub_000C5900) {
     uint32_t page = hash - kIconHashes;
     if (page >= uint32_t(kIconCount)) {
         __imp__sub_000C5900(ctx, base);
-        uint32_t tex = ctx.eax;
-        if (tex) {
-            uint32_t data = TextureDataFromInfo(tex);
-            if (data) {
-                // SKY_MIDDAY_A_CLOUDS_A (0x94D70856), SKY_SUNSET_A_CLOUDS_A (0xBAB91800)
-                if (hash == 0x94D70856u || hash == 0xBAB91800u) {
-                    game::g_sky_clouds_a_data = data;
-                }
-                // SKY_MIDDAY_A_CLOUDS_B (0x94D70857), SKY_SUNSET_A_CLOUDS_B (0xBAB91801)
-                else if (hash == 0x94D70857u || hash == 0xBAB91801u) {
-                    game::g_sky_clouds_b_data = data;
-                }
-            }
-        }
         return;
     }
     if (!g_textures[page]) g_textures[page] = MakeTexture(ctx, int(page));

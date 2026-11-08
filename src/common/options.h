@@ -66,9 +66,6 @@ const std::string& BootLanguage();
 bool LanguageAvailable(const std::string& code);  // src/game/game.cpp: the LANGUAGE row offers it
 inline std::atomic<uint32_t> g_road_reflection{0};  // the road reflection target's data, virtual; game.cpp, each present
 inline std::atomic<uint32_t> g_env_cube{0};         // the cars' reflection cube's data, the same
-inline std::atomic<uint32_t> g_sky_clouds_a_data{0}; // night mode starry sky replacement targets
-inline std::atomic<uint32_t> g_sky_clouds_b_data{0};
-uint32_t TextureDataFromInfo(uint32_t info);
 inline std::atomic<bool> g_focus_paused{false};  // the game thread waits while the app is in the background
 inline std::atomic<uint32_t> g_focus_pauses{0};  // focus pauses ended so far
 void WaitWhileUnfocused();  // native/game_host.cpp: game thread, before the present

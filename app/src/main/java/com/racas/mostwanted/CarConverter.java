@@ -836,7 +836,8 @@ final class CarConverter {
         long before = 0;
         for (Solid s : solids) before += solidBytes(s);
         for (Solid s : solids)
-            if (s.verts > MAX_SOLID_VERTICES) reduceSolid(s, (int) (s.tris * (double) MAX_SOLID_VERTICES / s.verts));
+            if (s.verts > MAX_SOLID_VERTICES)
+                reduceSolid(s, (int) (s.tris * (double) MAX_SOLID_VERTICES / s.verts), s == best.get(s.name.substring(0, s.name.length() - 1)));
         double all = 0;
         for (double share : LOD_SHARE) all += share;
         List<String> parts = new ArrayList<>(best.keySet());
@@ -847,17 +848,17 @@ final class CarConverter {
         // what stands out is cut first, the small parts that show most (a wheel) last; a vertex costs more than was reckoned, so again
         for (int round = 0; round < 4 && totalBytes(tops) > budget; round++) {
             int cap = triangleCap(tops, budget);
-            for (Solid b : tops) reduceSolid(b, cap);
+            for (Solid b : tops) reduceSolid(b, cap, true);
         }
         for (Solid s : solids) {
             Solid b = best.get(s.name.substring(0, s.name.length() - 1));
             int below = s.name.charAt(s.name.length() - 1) - b.name.charAt(b.name.length() - 1);
-            if (below > 0) reduceSolid(s, (int) (b.tris * LOD_SHARE[Math.min(below, LOD_SHARE.length - 1)]));
+            if (below > 0) reduceSolid(s, (int) (b.tris * LOD_SHARE[Math.min(below, LOD_SHARE.length - 1)]), false);
         }
         // the lower LODs may have stopped above their share: the best ones pay for it
         for (int round = 0; round < 4 && totalBytes(solids) > MAX_GEOMETRY; round++) {
             int cap = triangleCap(tops, totalBytes(tops) - (totalBytes(solids) - MAX_GEOMETRY));
-            for (Solid b : tops) reduceSolid(b, cap);
+            for (Solid b : tops) reduceSolid(b, cap, true);
         }
         long after = totalBytes(solids);
         log.accept("geometry: " + before / 1024 + " KB, to " + after / 1024 + " KB");
@@ -888,13 +889,26 @@ final class CarConverter {
                 renameSolid(part, target);
                 byName.put(target, part);
                 merged++;
-            } else if (mergeSolid(body, part)) {
+            } else if (mergeSolid(body, part) || fitMerge(body, part)) {
                 solids.remove(part);
                 merged++;
             }
         }
         if (merged + dropped > 0) log.accept("geometry: " + merged + " attachments into bodies, " + dropped + " left out");
         return merged + dropped > 0;
+    }
+
+    // a body and an attachment over a solid's 16 bit vertex count together: both thinned by as much till they fit. Left
+    // out, the attachment stayed in its slot, which never draws, and the car lost its panels
+    private static boolean fitMerge(Solid body, Solid part) {
+        for (int round = 0; round < 4; round++) {
+            int total = body.verts + part.verts;
+            if (total <= MAX_SOLID_VERTICES && mergeSolid(body, part)) return true;
+            double share = (double) MAX_SOLID_VERTICES / Math.max(total, 1);
+            reduceSolid(body, (int) (body.tris * share), true);
+            reduceSolid(part, (int) (part.tris * share), true);
+        }
+        return mergeSolid(body, part);
     }
 
     private static void renameSolid(Solid s, String name) {
@@ -1283,10 +1297,17 @@ final class CarConverter {
     }
 
     // each shading group thinned by as much (quadric edge collapse), from a mesh brought near by clustering if it is far over,
-    // and to the target by clustering if collapse stops short. Clustering alone tore a low mesh's wheels and faceted its body
-    private static void reduceSolid(Solid s, int target) {
+    // and to the target by clustering if collapse stops short. Clustering alone tore a low mesh's wheels and faceted its body;
+    // a best LOD, the one the player sees, is never clustered (a Grande Panda's body came out in shards): collapse only, and
+    // what it leaves over the target stays
+    private static void reduceSolid(Solid s, int target, boolean best) {
         target = Math.max(target, 1);
         if (s.tris <= target) return;
+        if (best) {
+            collapseToward(s, target);
+            if (s.tris > target + target / 4) collapseToward(s, target);  // the first pass's seams are open edges of the second
+            return;
+        }
         clusterToward(s, target * 2);
         collapseToward(s, target);
         if (s.tris > target + target / 4) clusterToward(s, target);
@@ -2655,8 +2676,9 @@ final class CarConverter {
         }
         if (solids.isEmpty()) throw new Failure(Failure.Reason.UNSUPPORTED, "no solid the converter knows in GEOMETRY.BIN");
         log.accept("geometry: " + solids.size() + " solids");
-        mergeAttachments(solids, log);
+        // thinned first, each attachment alone, so the body they go into stays under a solid's vertex count
         reduceLods(solids, log);
+        mergeAttachments(solids, log);
         pack.geometry = buildGeometry(solids, disc.load("CARS\\GALLARDO\\GEOMETRY.BIN"));
 
         List<Texture> tex = readModTextures(mt);

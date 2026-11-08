@@ -455,7 +455,7 @@ def reduce_lods(solids):
     before = sum(solid_bytes(s) for s in solids)
     for s in solids:
         if s.verts > MAX_SOLID_VERTICES:
-            reduce_solid(s, int(s.tris * MAX_SOLID_VERTICES / s.verts))
+            reduce_solid(s, int(s.tris * MAX_SOLID_VERTICES / s.verts), s is best[s.name[:-1]])
     tops = [best[part] for part in sorted(best)]
     budget = int(MAX_GEOMETRY / sum(LOD_SHARE))
     # what stands out is cut first, the small parts that show most (a wheel) last; a vertex costs more than was reckoned, so again
@@ -464,7 +464,7 @@ def reduce_lods(solids):
             break
         cap = triangle_cap(tops, budget)
         for b in tops:
-            reduce_solid(b, cap)
+            reduce_solid(b, cap, True)
     for s in solids:
         b = best[s.name[:-1]]
         below = ord(s.name[-1]) - ord(b.name[-1])
@@ -477,7 +477,7 @@ def reduce_lods(solids):
             break
         cap = triangle_cap(tops, sum(solid_bytes(b) for b in tops) - (total - MAX_GEOMETRY))
         for b in tops:
-            reduce_solid(b, cap)
+            reduce_solid(b, cap, True)
     print("geometry: %d KB, to %d KB" % (before // 1024, sum(solid_bytes(s) for s in solids) // 1024))
 
 
@@ -567,10 +567,17 @@ def cluster_solid(s, grid):
 
 
 # each shading group thinned by as much (quadric edge collapse), from a mesh brought near by clustering if it is far over,
-# and to the target by clustering if collapse stops short. Clustering alone tore a low mesh's wheels and faceted its body
-def reduce_solid(s, target):
+# and to the target by clustering if collapse stops short. Clustering alone tore a low mesh's wheels and faceted its body;
+# a best LOD, the one the player sees, is never clustered (a Grande Panda's body came out in shards): collapse only, and
+# what it leaves over the target stays
+def reduce_solid(s, target, best=False):
     target = max(target, 1)
     if s.tris <= target:
+        return
+    if best:
+        collapse_toward(s, target)
+        if s.tris > target + target // 4:
+            collapse_toward(s, target)  # the first pass's seams are open edges of the second
         return
     cluster_toward(s, target * 2)
     collapse_toward(s, target)
@@ -804,12 +811,25 @@ def merge_attachments(solids):
             rename_solid(part, target)
             by_name[target] = part
             merged += 1
-        elif merge_solid(body, part):
+        elif merge_solid(body, part) or fit_merge(body, part):
             solids.remove(part)
             merged += 1
     if merged + dropped:
         print("geometry: %d attachments into bodies, %d left out" % (merged, dropped))
     return merged + dropped > 0
+
+
+# a body and an attachment over a solid's 16 bit vertex count together: both thinned by as much till they fit. Left
+# out, the attachment stayed in its slot, which never draws, and the car lost its panels
+def fit_merge(body, part):
+    for _ in range(4):
+        total = body.verts + part.verts
+        if total <= MAX_SOLID_VERTICES and merge_solid(body, part):
+            return True
+        share = MAX_SOLID_VERTICES / max(total, 1)
+        for s in (body, part):
+            reduce_solid(s, int(s.tris * share), True)
+    return merge_solid(body, part)
 
 
 def rename_solid(s, name):
@@ -1813,8 +1833,9 @@ def main():
         if s:
             solids.append(s)
     print("geometry: %d solids" % len(solids))
-    merge_attachments(solids)
+    # thinned first, each attachment alone, so the body they go into stays under a solid's vertex count
     reduce_lods(solids)
+    merge_attachments(solids)
     geometry = build_geometry(solids, xg)
 
     tex = read_mod_textures(mt)

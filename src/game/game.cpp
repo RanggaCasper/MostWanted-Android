@@ -111,15 +111,6 @@ uint32_t TargetData(uint32_t target) {
     return surface ? mem::VirtualFromPhysical(kernel::R32(surface + 4)) : 0;
 }
 
-uint32_t TextureDataFromInfo(uint32_t info) {
-    if (!info || !mem::IsCommitted(info)) return 0;
-    uint32_t plat = kernel::R32(info);
-    if (!plat || !mem::IsCommitted(plat)) return 0;
-    uint32_t phys = kernel::R32(plat + 0x14);
-    if (!phys) return 0;
-    return mem::VirtualFromPhysical(phys);
-}
-
 void ApplyGraphicsSwitches() {
     // HALF and QUARTER draw the cube every 2nd or 4th frame; between, the cars read the faces drawn last. OFF still
     // draws it every 512th: a cube never drawn leaves the paint white, whatever native/vulkan.cpp binds for it. Out of a
@@ -138,10 +129,6 @@ void ApplyGraphicsSwitches() {
     g_road_reflection = TargetData(kernel::R32(kRoadReflectionView + 0x60));
     // the cube is its six faces' memory, the first face's at its start
     g_env_cube = TargetData(kernel::R32(kEnvMapFace0Target));
-
-    // Update sky texture targets if available (from global array 0x4D5578)
-    if (uint32_t d = TextureDataFromInfo(kernel::R32(0x4D5578 + 0x08))) g_sky_clouds_a_data = d;
-    if (uint32_t d = TextureDataFromInfo(kernel::R32(0x4D5578 + 0x10))) g_sky_clouds_b_data = d;
 
     // night mode sky dome multipliers, horizon haze, and headlight road projection color
     static const float kSkyDayMidday[4] = {0.9723f, 0.9900f, 1.1000f, 1.0f};
@@ -473,39 +460,25 @@ X86_FUNC(sub_0024ABE0) {
     __imp__sub_0024ABE0(ctx, base);
 }
 
-// InitSkyTextures: also update sky texture addresses from global array
-X86_EXTERN_FUNC(__imp__sub_00244700);
-X86_FUNC(sub_00244700) {
-    __imp__sub_00244700(ctx, base);
-    if (uint32_t d = game::TextureDataFromInfo(kernel::R32(0x4D5578 + 0x08))) game::g_sky_clouds_a_data = d;
-    if (uint32_t d = game::TextureDataFromInfo(kernel::R32(0x4D5578 + 0x10))) game::g_sky_clouds_b_data = d;
-}
-
-// In night mode, ensure cloud/star layers (layer 1 & 2) have full alpha (1.0f) so they are never skipped
-X86_EXTERN_FUNC(__imp__sub_00244DB0);
-X86_FUNC(sub_00244DB0) {
-    uint32_t layer = kernel::R32(ctx.esp + 8);
-    uint32_t ptr_a = kernel::R32(ctx.esp + 24);
-    __imp__sub_00244DB0(ctx, base);
-    if (game::Opt().night_mode && (layer == 1 || layer == 2)) {
-        if (ptr_a && mem::IsCommitted(ptr_a)) {
-            kernel::G<float>(ptr_a) = 1.0f;
-        }
-    }
-}
-
-// In night mode, boost the cloud/star layers (layer 1 & 2) color to brilliant white (1.0)
-// so the stars shine crisp and bright in the night sky
+// A sky layer's draw (0x244B70, cdecl: the view, the layer) takes its colour from 0x42FE00 (r, g, b, a). The frame's
+// sky loop (0x0D7708) works it out per layer (0x244DB0) times the dome multiplier (0x42FDA0 / 0x42FDB0, night's in
+// ApplyGraphicsSwitches) and returns to 0x0D7792; the other callers (0x0D6D0B white, 0x0D7BF3 from 0x42FD90,
+// 0x0D7E24 whatever is left) never see the multiplier, so night mode multiplies their colour here. Forced to white,
+// the clouds (layers 1 and 2) had stayed daylight over a night dome. The layers are one model (0x4D5E28) whose two
+// textures 0x244B00 renames per layer (0x4D4148 + layer * 8: GRADIENT, CLOUDS_A, CLOUDS_B with their CAPs, ...)
 X86_EXTERN_FUNC(__imp__sub_00244B70);
 X86_FUNC(sub_00244B70) {
-    uint32_t layer = kernel::R32(ctx.esp + 8);
-    if (game::Opt().night_mode && (layer == 1 || layer == 2)) {
-        kernel::G<float>(0x42FE00) = 1.0f;
-        kernel::G<float>(0x42FE04) = 1.0f;
-        kernel::G<float>(0x42FE08) = 1.0f;
-        kernel::G<float>(0x42FE0C) = 1.0f;
+    constexpr uint32_t kSkyColour = 0x42FE00, kSkyLoopReturn = 0x0D7792;
+    if (!game::Opt().night_mode || kernel::R32(ctx.esp) == kSkyLoopReturn) return __imp__sub_00244B70(ctx, base);
+    static const float kNight[3] = {0.10f, 0.15f, 0.32f};
+    float saved[3];
+    for (int i = 0; i < 3; i++) {
+        float& c = kernel::G<float>(kSkyColour + i * 4);
+        saved[i] = c;
+        c *= kNight[i];
     }
     __imp__sub_00244B70(ctx, base);
+    for (int i = 0; i < 3; i++) kernel::G<float>(kSkyColour + i * 4) = saved[i];
 }
 
 // The motion blur: the "Motion Blur" pass (0x0D1440, cdecl: the view, a flag, a mode, an amount; from the "Visual Look
