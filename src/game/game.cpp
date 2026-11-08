@@ -94,12 +94,27 @@ namespace game {
 constexpr uint32_t kEnvMapSwitch = 0x4279D6, kParticleDrawSwitch = 0x4279CF, kCarShadowSwitch = 0x469910;
 constexpr uint32_t kRoadReflectionSwitch = 0x427A3C, kRoadReflectionView = 0x48AE40;
 constexpr uint32_t kEnvMapFace0Target = 0x48B4C0;  // view 0x12's [view + 0x60], the faces' views 0x70 apart
+constexpr uint32_t kSkyMidday = 0x42FDA0, kSkySunset = 0x42FDB0;
+constexpr uint32_t kHorizonHaze = 0x4279D7;
+constexpr uint32_t kHeadlightBeamColor = 0x469B0C;
+inline int g_headlights_clear_frames = 0;
+inline bool g_prev_night_mode = false;
 
 // the colour data of a view's target, [target + 8]'s, as a texture's address reads
 uint32_t TargetData(uint32_t target) {
     uint32_t surface = target ? kernel::R32(target + 8) : 0;
     return surface ? mem::VirtualFromPhysical(kernel::R32(surface + 4)) : 0;
 }
+
+uint32_t TextureDataFromInfo(uint32_t info) {
+    if (!info || !mem::IsCommitted(info)) return 0;
+    uint32_t plat = kernel::R32(info);
+    if (!plat || !mem::IsCommitted(plat)) return 0;
+    uint32_t phys = kernel::R32(plat + 0x14);
+    if (!phys) return 0;
+    return mem::VirtualFromPhysical(phys);
+}
+
 void ApplyGraphicsSwitches() {
     // HALF and QUARTER draw the cube every 2nd or 4th frame; between, the cars read the faces drawn last. OFF still
     // draws it every 512th: a cube never drawn leaves the paint white, whatever native/vulkan.cpp binds for it. Out of a
@@ -118,6 +133,42 @@ void ApplyGraphicsSwitches() {
     g_road_reflection = TargetData(kernel::R32(kRoadReflectionView + 0x60));
     // the cube is its six faces' memory, the first face's at its start
     g_env_cube = TargetData(kernel::R32(kEnvMapFace0Target));
+
+    // Update sky texture targets if available (from global array 0x4D5578)
+    if (uint32_t d = TextureDataFromInfo(kernel::R32(0x4D5578 + 0x08))) g_sky_clouds_a_data = d;
+    if (uint32_t d = TextureDataFromInfo(kernel::R32(0x4D5578 + 0x10))) g_sky_clouds_b_data = d;
+
+    // night mode sky dome multipliers, horizon haze, and headlight road projection color
+    static const float kSkyDayMidday[4] = {0.9723f, 0.9900f, 1.1000f, 1.0f};
+    static const float kSkyDaySunset[4] = {0.95858f, 1.0700f, 1.1150f, 1.0f};
+    static const float kSkyNight[4] = {0.10f, 0.15f, 0.32f, 1.0f};
+    const float* midday = Opt().night_mode ? kSkyNight : kSkyDayMidday;
+    const float* sunset = Opt().night_mode ? kSkyNight : kSkyDaySunset;
+    std::memcpy(kernel::HostPtr(kSkyMidday), midday, sizeof(kSkyNight));
+    std::memcpy(kernel::HostPtr(kSkySunset), sunset, sizeof(kSkyNight));
+    kernel::G<uint8_t>(kHorizonHaze) = Opt().night_mode ? 0 : 1;
+    kernel::W32(kHeadlightBeamColor, Opt().night_mode ? 0x48FFF4D8 : 0x80cccccc);
+
+    // Car headlight beam quad geometry tuning:
+    // Default vanilla is a 20m flat rectangle (13m center, 10m length, 4.9m width) which severely clips/floats on curves.
+    // In night mode, use a realistic 12m cone (10m center, 6m length, 5.2m wide ahead, 2.4m at bumper) that hugs road contours.
+    static const float kBeamDay[5] = {13.0f, 10.0f, 4.9f, 10.0f, 4.9f};
+    static const float kBeamNight[5] = {10.0f, 6.0f, 5.2f, 6.0f, 2.4f};
+    const float* beam = Opt().night_mode ? kBeamNight : kBeamDay;
+    kernel::G<float>(0x469ACC) = beam[0];
+    kernel::G<float>(0x469AE4) = beam[1];
+    kernel::G<float>(0x469AE8) = beam[1];
+    kernel::G<float>(0x469AEC) = beam[2];
+    kernel::G<float>(0x469AF0) = beam[2];
+    kernel::G<float>(0x469AF4) = beam[3];
+    kernel::G<float>(0x469AF8) = beam[3];
+    kernel::G<float>(0x469AFC) = beam[4];
+    kernel::G<float>(0x469B00) = beam[4];
+
+    bool night = Opt().night_mode;
+    if (!night && g_prev_night_mode) g_headlights_clear_frames = 120;
+    g_prev_night_mode = night;
+    if (g_headlights_clear_frames > 0) --g_headlights_clear_frames;
 }
 
 // Cheats:
@@ -256,21 +307,119 @@ X86_FUNC(sub_002527A0) {
     ctx.esp += 4;
 }
 
-// The yellow look: the "Visual Look Pass" (0x0CDA40, pixel shader 0x17) adds the scene times a tint (texture 3) over
+// The yellow look and night mode look: the "Visual Look Pass" (0x0CDA40, pixel shader 0x17) adds the scene times a tint (texture 3) over
 // the desaturated scene. 0x0C1BD0 fills that tint's 256x1 ramp ([this + 0x234]) from a curve (+0x50) times the colour
 // at +0xA0/+0xA4/+0xA8 (R, G, B), the visual treatment's, blended by the game through the day. YELLOW TINT off makes
-// the ramp grey of the colour's luma while it is built, and gives the game its colour back
+// the ramp grey of the colour's luma while it is built. NIGHT MODE tints it with cool moonlight blue
 X86_EXTERN_FUNC(__imp__sub_000C1BD0);
 X86_FUNC(sub_000C1BD0) {
-    if (game::Opt().yellow_tint) return __imp__sub_000C1BD0(ctx, base);
+    if (game::Opt().yellow_tint && !game::Opt().night_mode) return __imp__sub_000C1BD0(ctx, base);
     uint32_t tint = ctx.ecx + 0xA0;
     float& r = kernel::G<float>(tint);
     float& g = kernel::G<float>(tint + 4);
     float& b = kernel::G<float>(tint + 8);
     float saved[] = {r, g, b};
-    r = g = b = 0.299f * saved[0] + 0.587f * saved[1] + 0.114f * saved[2];
+    float luma = 0.299f * saved[0] + 0.587f * saved[1] + 0.114f * saved[2];
+    if (game::Opt().night_mode) {
+        r = 0.15f * luma;
+        g = 0.32f * luma;
+        b = 0.68f * luma;
+    } else {
+        r = g = b = luma;
+    }
     __imp__sub_000C1BD0(ctx, base);
     r = saved[0], g = saved[1], b = saved[2];
+}
+
+// In night mode, clamp bloom intensity (+0x170) to prevent blinding daytime glare
+X86_EXTERN_FUNC(__imp__sub_000CDA40);
+X86_FUNC(sub_000CDA40) {
+    if (!game::Opt().night_mode) return __imp__sub_000CDA40(ctx, base);
+    uint32_t obj = ctx.ecx;
+    float& bloom = kernel::G<float>(obj + 0x170);
+    float saved_bloom = bloom;
+    bloom = std::min(bloom, 0.20f);
+    __imp__sub_000CDA40(ctx, base);
+    bloom = saved_bloom;
+}
+
+// Sun glare (0x0D5AB0) and sun disk/rays pass (0x0D5CA0): night mode skips them completely
+X86_EXTERN_FUNC(__imp__sub_000D5AB0);
+X86_FUNC(sub_000D5AB0) {
+    if (game::Opt().night_mode) {
+        ctx.esp += 4;
+        return;
+    }
+    __imp__sub_000D5AB0(ctx, base);
+}
+
+X86_EXTERN_FUNC(__imp__sub_000D5CA0);
+X86_FUNC(sub_000D5CA0) {
+    if (game::Opt().night_mode) {
+        ctx.esp += 4;
+        return;
+    }
+    __imp__sub_000D5CA0(ctx, base);
+}
+
+// Vehicle headlights and flares (0x24AB90): PVehicle::mGlareState (at [esp + 4]) bits | 7
+// turns on front headlights, flares and illuminated light textures on all vehicles
+X86_EXTERN_FUNC(__imp__sub_0024AB90);
+X86_FUNC(sub_0024AB90) {
+    uint32_t ptr = kernel::R32(ctx.esp + 4);
+    if (ptr && mem::IsCommitted(ptr)) {
+        if (game::Opt().night_mode) {
+            kernel::W32(ptr, kernel::R32(ptr) | 7);
+        } else if (game::g_headlights_clear_frames > 0) {
+            kernel::W32(ptr, kernel::R32(ptr) & ~7u);
+        }
+    }
+    __imp__sub_0024AB90(ctx, base);
+}
+
+// Vehicle headlight ground projection (0x24ABE0): arg 5 (at [esp + 20])
+// activates the "2PLAYERHEADLIGHT1" headlight beam quad projected onto the road surface
+X86_EXTERN_FUNC(__imp__sub_0024ABE0);
+X86_FUNC(sub_0024ABE0) {
+    if (game::Opt().night_mode) {
+        kernel::W32(ctx.esp + 20, 1);
+    }
+    __imp__sub_0024ABE0(ctx, base);
+}
+
+// InitSkyTextures: also update sky texture addresses from global array
+X86_EXTERN_FUNC(__imp__sub_00244700);
+X86_FUNC(sub_00244700) {
+    __imp__sub_00244700(ctx, base);
+    if (uint32_t d = game::TextureDataFromInfo(kernel::R32(0x4D5578 + 0x08))) game::g_sky_clouds_a_data = d;
+    if (uint32_t d = game::TextureDataFromInfo(kernel::R32(0x4D5578 + 0x10))) game::g_sky_clouds_b_data = d;
+}
+
+// In night mode, ensure cloud/star layers (layer 1 & 2) have full alpha (1.0f) so they are never skipped
+X86_EXTERN_FUNC(__imp__sub_00244DB0);
+X86_FUNC(sub_00244DB0) {
+    uint32_t layer = kernel::R32(ctx.esp + 8);
+    uint32_t ptr_a = kernel::R32(ctx.esp + 24);
+    __imp__sub_00244DB0(ctx, base);
+    if (game::Opt().night_mode && (layer == 1 || layer == 2)) {
+        if (ptr_a && mem::IsCommitted(ptr_a)) {
+            kernel::G<float>(ptr_a) = 1.0f;
+        }
+    }
+}
+
+// In night mode, boost the cloud/star layers (layer 1 & 2) color to brilliant white (1.0)
+// so the stars shine crisp and bright in the night sky
+X86_EXTERN_FUNC(__imp__sub_00244B70);
+X86_FUNC(sub_00244B70) {
+    uint32_t layer = kernel::R32(ctx.esp + 8);
+    if (game::Opt().night_mode && (layer == 1 || layer == 2)) {
+        kernel::G<float>(0x42FE00) = 1.0f;
+        kernel::G<float>(0x42FE04) = 1.0f;
+        kernel::G<float>(0x42FE08) = 1.0f;
+        kernel::G<float>(0x42FE0C) = 1.0f;
+    }
+    __imp__sub_00244B70(ctx, base);
 }
 
 // The motion blur: the "Motion Blur" pass (0x0D1440, cdecl: the view, a flag, a mode, an amount; from the "Visual Look

@@ -50,6 +50,7 @@ constexpr Entry kEntries[] = {
     {"SHADER PRELOADING", {u"Préchargement des shaders", u"Shader vorladen", u"Precaricamento shader", u"Precarga de shaders", u"Muat shader di awal"}},
     {"MOTION BLUR", {u"Flou de mouvement", u"Bewegungsunschärfe", u"Sfocatura di movimento", u"Desenfoque de movimiento", u"Blur gerakan"}},
     {"YELLOW TINT", {u"Teinte jaune", u"Gelbstich", u"Tinta gialla", u"Tinte amarillo", u"Filter kuning"}},
+    {"NIGHT MODE", {u"Mode nuit", u"Nachtmodus", u"Modalità notte", u"Modo noche", u"Mode malam"}},
     {"BLOOM", {u"Flou lumineux", u"Bloom", u"Bloom", u"Resplandor", u"Bloom"}},
     {"ASPECT RATIO", {{}, {}, {}, {}, u"Rasio aspek"}},
     {"FULL SCREEN", {{}, {}, {}, {}, u"Layar penuh"}},

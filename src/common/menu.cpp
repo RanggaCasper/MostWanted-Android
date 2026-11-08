@@ -247,7 +247,7 @@ enum RowId { kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kAudioOutp
              kAntiAliasing, kFpsPosition, kFpsTemps, kStickMode, kBloom, kFog, kDonate, kGithub, kYoutube, kFpsUsage,
              kReflections, kParticles, kRain, kRainDrops, kShadows, kRoadReflections,
              kCheatNos, kCheatSpeedbreaker, kCheatCash, kCheatNoPolice, kCheatUnlockAll,
-             kSkipMovies, kYellowTint, kMotionBlur, kShaderPreload, kCheatDragShift, kCheatNoTraffic };
+             kSkipMovies, kYellowTint, kNightMode, kMotionBlur, kShaderPreload, kCheatDragShift, kCheatNoTraffic };
 
 using rows::Kind;
 using rows::Row;
@@ -277,6 +277,7 @@ constexpr Row kGraphicsRows[] = {
     {Kind::Value, kRain, "FALLING RAIN"},
     {Kind::Value, kRainDrops, "SCREEN RAINDROPS"},
     {Kind::Value, kYellowTint, "YELLOW TINT"},
+    {Kind::Value, kNightMode, "NIGHT MODE"},
     {Kind::Value, kMotionBlur, "MOTION BLUR"},
     {Kind::Value, kScreenFilter, "SCREEN FILTER"},
 };
@@ -366,6 +367,7 @@ bool* ToggleFlag(Settings& s, int id) {
         case kRain: return &o.rain;
         case kRainDrops: return &o.rain_drops;
         case kYellowTint: return &o.yellow_tint;
+        case kNightMode: return &o.night_mode;
         case kMotionBlur: return &o.motion_blur;
         case kShaderPreload: return &o.shader_preload;
         case kCheatNos: return &o.cheat_nos;
