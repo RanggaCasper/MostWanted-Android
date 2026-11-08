@@ -73,14 +73,30 @@ struct Packet {
 };
 std::vector<Packet> g_packets;
 size_t g_next_packet = 0;
+// the sound is made AAC on a thread of its own as the frames go: made first, its minutes held the frames back, and the
+// renderer waited on their queue (Frame) with the game still. g_audio_lock keeps its format and packets; the muxer
+// waits only for the format (g_audio_known), the end for the thread
+std::thread g_audio_thread;
+std::mutex g_audio_lock;
+std::condition_variable g_audio_cv;
+bool g_audio_known = false;  // the format made, or no sound
 AMediaFormat* g_audio_format = nullptr;
 ssize_t g_audio_track = -1;
 int64_t g_last_us = 0;  // the last frame written
 
+void AudioKnown() {
+    {
+        std::lock_guard lock(g_audio_lock);
+        g_audio_known = true;
+    }
+    g_audio_cv.notify_all();
+}
+
 // the whole sound made AAC (LC, 128 kb/s), its packets kept; false leaves the video silent
 bool EncodeAudio() {
-    g_packets.clear();
-    g_next_packet = 0;
+    struct Told {  // however it ends, the muxer waits no more
+        ~Told() { AudioKnown(); }
+    } told;
     if (g_pcm.empty() || !g_pcm_rate) return false;
     AMediaFormat* f = AMediaFormat_new();
     AMediaFormat_setString(f, AMEDIAFORMAT_KEY_MIME, "audio/mp4a-latm");
@@ -122,8 +138,12 @@ bool EncodeAudio() {
         AMediaCodecBufferInfo info;
         ssize_t o = AMediaCodec_dequeueOutputBuffer(a, &info, sent_end ? 10000 : 0);
         if (o == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
-            if (g_audio_format) AMediaFormat_delete(g_audio_format);
-            g_audio_format = AMediaCodec_getOutputFormat(a);
+            {
+                std::lock_guard lock(g_audio_lock);
+                if (g_audio_format) AMediaFormat_delete(g_audio_format);
+                g_audio_format = AMediaCodec_getOutputFormat(a);
+            }
+            AudioKnown();
             continue;
         }
         if (o < 0) {
@@ -132,9 +152,11 @@ bool EncodeAudio() {
         }
         size_t size = 0;
         uint8_t* data = AMediaCodec_getOutputBuffer(a, size_t(o), &size);
-        if (data && info.size > 0 && !(info.flags & AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG))
+        if (data && info.size > 0 && !(info.flags & AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG)) {
+            std::lock_guard lock(g_audio_lock);
             g_packets.push_back({std::vector<uint8_t>(data + info.offset, data + info.offset + info.size),
                                  info.presentationTimeUs, info.flags & ~uint32_t(AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM)});
+        }
         AMediaCodec_releaseOutputBuffer(a, size_t(o), false);
         if (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM) done = true;
     }
@@ -149,6 +171,7 @@ bool EncodeAudio() {
 // the sound's packets up to the frames written
 void WriteAudio(int64_t up_to_us) {
     if (g_audio_track < 0) return;
+    std::lock_guard lock(g_audio_lock);
     while (g_next_packet < g_packets.size() && g_packets[g_next_packet].us <= up_to_us) {
         Packet& p = g_packets[g_next_packet++];
         AMediaCodecBufferInfo info{0, int32_t(p.data.size()), p.us, p.flags};
@@ -199,7 +222,12 @@ void Drain(bool ending) {
             AMediaFormat* f = AMediaCodec_getOutputFormat(g_codec);
             g_track = AMediaMuxer_addTrack(g_muxer, f);
             AMediaFormat_delete(f);
-            g_audio_track = g_audio_format && !g_packets.empty() ? AMediaMuxer_addTrack(g_muxer, g_audio_format) : -1;
+            // the muxer takes its tracks before it starts: the sound's format, which its encoder gives in moments
+            {
+                std::unique_lock lock(g_audio_lock);
+                g_audio_cv.wait(lock, [] { return g_audio_known; });
+                g_audio_track = g_audio_format ? AMediaMuxer_addTrack(g_muxer, g_audio_format) : -1;
+            }
             g_muxing = g_track >= 0 && AMediaMuxer_start(g_muxer) == AMEDIA_OK;
             continue;
         }
@@ -284,7 +312,6 @@ void Close() {
 }
 
 void Run() {
-    EncodeAudio();
     for (;;) {
         Pending p;
         bool finish = false;
@@ -308,6 +335,7 @@ void Run() {
         for (int tries = 0; tries < 100 && i < 0; tries++) i = AMediaCodec_dequeueInputBuffer(g_codec, 10000);
         if (i >= 0) AMediaCodec_queueInputBuffer(g_codec, size_t(i), 0, 0, 0, AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM);
         Drain(true);
+        if (g_audio_thread.joinable()) g_audio_thread.join();  // all the sound made before its last packets go in
         WriteAudio(g_last_us + int64_t(1000000 / g_fps));  // the sound to the end of the last frame, no further
         bool any = g_muxing && g_written;
         Close();
@@ -372,6 +400,16 @@ bool Start(uint32_t w, uint32_t h, uint32_t fps, std::vector<int16_t> pcm, uint3
     g_pcm_rate = pcm_rate;
     g_last_us = 0;
     if (g_thread.joinable()) g_thread.join();
+    if (g_audio_thread.joinable()) g_audio_thread.join();
+    {
+        std::lock_guard lock(g_audio_lock);
+        g_packets.clear();
+        g_next_packet = 0;
+        g_audio_known = false;
+        g_audio_track = -1;
+        if (g_audio_format) AMediaFormat_delete(g_audio_format);
+        g_audio_format = nullptr;
+    }
     g_w = w, g_h = h, g_fps = fps;
     std::filesystem::path dir = "/storage/emulated/0/Movies/MostWanted";
     std::error_code ec;
@@ -405,6 +443,7 @@ bool Start(uint32_t w, uint32_t h, uint32_t fps, std::vector<int16_t> pcm, uint3
         g_result.clear();
     }
     g_state = 1;
+    g_audio_thread = std::thread(EncodeAudio);
     g_thread = std::thread(Run);
     LOGR("video: %ux%u at %u fps, colour %d, stride %d, slice %d, into %s", w, h, fps, g_color, g_stride, g_slice,
          g_path.c_str());
