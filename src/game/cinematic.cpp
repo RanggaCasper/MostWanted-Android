@@ -547,6 +547,7 @@ void CinematicRequest(bool from_pause_menu) {
     g_request = true;
 }
 bool CinematicActive() { return g_active; }
+bool CinematicClean() { return g_active && (!g_menu || g_playing); }
 
 // the pad filter, before the game sees it: true while the pad is the camera's (or still held after leaving)
 bool CinematicPad(int port, const input::Pad& pad) {

@@ -725,8 +725,15 @@ float FeHalfWidth(const std::string& label, float hh) {
     return std::max(hh * kPillAspect, float(label.size()) * hh * kFeTextSize * 7.0f / 13.0f / 2.0f + hh * 0.7f);
 }
 
+// CINEMATIC MODE (src/game/cinematic.cpp) flies a camera on the pad: whatever the RACING layout, which has no left
+// stick and steers with arrows, a wheel or the tilt (across only), the left half of the screen is a floating left stick
+// (move) and the right half a floating right stick (look); the steering is off and the buttons stay (the pedals zoom,
+// Black and White the height, Start the menu, B out)
+bool Cinematic() { return !g_editing && game::CinematicActive(); }
+
 // the RACING layout's arrows and wheel show as STEERING picks them, in the editor too
 bool SteeringShown(int press) {
+    if ((press == kSteerLeft || press == kSteerRight || press == kSteerWheel) && Cinematic()) return false;
     Steering s = g_steering;
     if (press == kSteerLeft || press == kSteerRight) return s == Steering::Arrows;
     if (press == kSteerWheel) return s == Steering::Wheel;
@@ -1259,6 +1266,8 @@ void FingerDown(SDL_FingerID id, float x, float y) {
             }
         }
         if (kButtons[b].press == kResetCar) game::g_reset_car = true;
+    } else if (Cinematic()) {
+        f.role = x < Width() / 2 ? Role::Stick : Role::Look;
     } else if (FeMenu() && game::CurrentFePrompts().right_stick) {
         f.role = Role::FeTap;  // FEng's pointer would click whatever the drag began on (the map's GPS)
     } else if (FeMenu()) {
@@ -1488,7 +1497,7 @@ void Apply(int port, input::Pad& pad) {
     constexpr float kWheelReturn = 0.6f;
     if (!g_wheel_held) g_wheel_turn = std::fabs(g_wheel_turn) < 1.0f ? 0.0f : g_wheel_turn * kWheelReturn;
     if (g_steering == Steering::Wheel) steer += g_wheel_turn / kWheelLock;
-    if (g_steering == Steering::Tilt && !FeMenu() && !app::MenuOpen()) steer += gyro::Steer();
+    if (g_steering == Steering::Tilt && !FeMenu() && !app::MenuOpen() && !Cinematic()) steer += gyro::Steer();
     float sx = std::clamp(g_stick_x + steer, -1.0f, 1.0f);
     if (sx || g_stick_y) {
         used = true;
@@ -1503,8 +1512,13 @@ void Apply(int port, input::Pad& pad) {
     if (used) pad.connected = true;
 }
 
+// cinematic mode's picture alone (its menu hidden, its path playing): the controls a moment after a touch, as on a pad
+constexpr uint64_t kCleanShownMs = 2500;
 #ifdef __ANDROID__
-bool Shown() { return !PadPlugged() || NowMs() - g_touch_ms < kShownMs; }
+bool Shown() {
+    if (Cinematic() && game::CinematicClean()) return NowMs() - g_touch_ms < kCleanShownMs;
+    return !PadPlugged() || NowMs() - g_touch_ms < kShownMs;
+}
 #else
 // a PC plays on its keyboard and controllers: the controls only on a touch screen, a while after it is touched
 bool Shown() { return g_touch_ms && NowMs() - g_touch_ms < kShownMs; }
@@ -1634,8 +1648,14 @@ void DrawStickShapes(ImDrawList* dl, float th, ImVec2 at, float r, float sx, flo
 }
 
 void DrawStick(ImDrawList* dl, float th, size_t stick) {
-    // a hidden right stick: faint and crossed out in the editor, else not drawn
-    bool hidden = g_layout[stick].hidden;
+    // a hidden right stick: faint and crossed out in the editor, else not drawn. Cinematic mode's sticks float with no
+    // place: drawn only under the thumb
+    const bool cinematic = Cinematic();
+    if (cinematic && std::none_of(g_fingers.begin(), g_fingers.end(), [stick](const Finger& f) {
+            return f.role == (stick == kStick ? Role::Stick : Role::Look);
+        }))
+        return;
+    bool hidden = g_layout[stick].hidden && !cinematic;
     if (hidden && !g_editing) return;
     float opacity = g_opacity;
     if (hidden) g_opacity *= 0.4f;

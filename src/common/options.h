@@ -85,6 +85,7 @@ uint32_t ModCarTexture(X86Context& ctx, uint32_t hash);  // src/game/car_mods.cp
 // cinematic mode (src/game/cinematic.cpp): the pause menu's icon asks for it, the next frame enters
 void CinematicRequest(bool from_pause_menu = false);  // from the menu: leaving opens the pause menu again
 bool CinematicActive();
+bool CinematicClean();  // on, its menu hidden or its path playing: the picture alone, the touch controls out of it
 bool CinematicPad(int port, const input::Pad& pad);  // the pad filter: true while the camera has the pad
 void DrawCinematicHud();                             // inside the ImGui frame: its menu, Start shows and hides it
 bool CinematicMenuHit(float x, float y);             // screen pixels on its menu: the touch controls leave them

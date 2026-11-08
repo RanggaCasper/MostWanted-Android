@@ -289,6 +289,8 @@ void FeFrame() {
             else found = {};
         }
     }
+    // cinematic mode hides the pause menu under its camera: no menu then, the touch controls the camera's
+    if (CinematicActive()) menu = prompted = 0;
     int frames = g_mouse_frames;
     if (g_down) frames = kMouseFrames;
     else if (frames > 0) frames--;
