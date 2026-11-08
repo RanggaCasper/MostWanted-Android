@@ -155,10 +155,22 @@ def replay():
     return img
 
 
+def leave():
+    # a door frame, the door open into it, and an arrow out through it: the main menu's EXIT
+    img, d = canvas()
+    rrect(d, (20, 17, 46, 62), 2.5)  # the frame
+    rrect(d, (24.5, 21.5, 41.5, 62), 1.2, fill=0)  # the doorway
+    d.polygon(p(24.5, 21.5, 36, 25, 36, 62, 24.5, 62), fill=255)  # the door, swung in
+    d.ellipse(p(31.5, 41, 34, 43.5), fill=0)  # its knob
+    rrect(d, (40, 37, 55, 43), 1.2)  # the arrow's shaft, out of the doorway
+    d.polygon(p(53, 30.5, 63, 40, 53, 49.5), fill=255)  # its head
+    return img
+
+
 # in the sections' order: graphics, controls, general, and the menu that holds them, Android's Options (3) or on
-# Linux its Linux Options (4); then the pause menu's CINEMATIC MODE (5) and REPLAY (6, src/game/options_menu.cpp's
-# IconOf)
-ICONS = [monitor, phone, sliders, android, tux, camera, replay]
+# Linux its Linux Options (4); then the pause menu's CINEMATIC MODE (5) and REPLAY (6), and the main menu's EXIT (7,
+# src/game/options_menu.cpp's IconOf)
+ICONS = [monitor, phone, sliders, android, tux, camera, replay, leave]
 
 
 def compose(subject):

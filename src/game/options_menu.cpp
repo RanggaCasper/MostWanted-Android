@@ -20,6 +20,8 @@
 // FEDatabase flag 0x10, 0x0E3F30) and that UIOptionsMain gets the three sections' icons in place of the game's; a
 // section's Back comes back to it. The icons' textures are made here: GetTextureInfo (0xC5900) answers their hashes with a copy
 // of the Audio icon's TextureInfo whose D3D texture is ours (src/game/option_icons.inc, tools/option_icons.py).
+#include <SDL3/SDL.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -154,10 +156,12 @@ static_assert(kSectionCount <= kIconCount, "tools/option_icons.py draws an icon 
 // the sections', tools/option_icons.py)
 // CINEMATIC MODE is an icon of the pause menu with no section of rows: it starts the photo mode (cinematic.cpp); so
 // is REPLAY, after it (replay.cpp), where the menu has a slot left for it
-constexpr int kCinematic = kSectionCount, kReplay = kSectionCount + 1;
+// EXIT is an icon of the main menu after ANDROID OPTIONS: it closes the app
+constexpr int kCinematic = kSectionCount, kReplay = kSectionCount + 1, kExit = kSectionCount + 2;
 constexpr int IconOf(int section) {
     if (section == kCinematic) return kSectionCount + 1;  // the camera, after Tux
     if (section == kReplay) return kSectionCount + 2;     // the replay's, after the camera
+    if (section == kExit) return kSectionCount + 3;       // the door, after the replay's
 #ifdef __ANDROID__
     return section;
 #else
@@ -165,7 +169,7 @@ constexpr int IconOf(int section) {
 #endif
 }
 static_assert(IconOf(kAndroidSection) < kIconCount, "tools/option_icons.py draws the Linux icon after the sections'");
-static_assert(IconOf(kReplay) < kIconCount, "tools/option_icons.py draws the camera, then the replay's, last");
+static_assert(IconOf(kExit) < kIconCount, "tools/option_icons.py draws the camera, the replay's, then the door, last");
 
 // a section's rows, its pages' one after the other; a page after the first opens with its name when it has no
 // heading of its own
@@ -205,6 +209,7 @@ std::string TitleCase(std::string text) {
 std::string SectionTitle(int section) {
     if (section == kCinematic) return TitleCase(app::Ui("CINEMATIC MODE"));
     if (section == kReplay) return TitleCase(app::Ui("REPLAY"));
+    if (section == kExit) return TitleCase(app::Ui("EXIT"));
     return TitleCase(app::Ui(kSections[section].name));
 }
 
@@ -332,6 +337,13 @@ void IconReact(X86Context& ctx, uint8_t*) {
         if (R32(esp + 8) == kAccept) CinematicRequest(true);
     } else if (it != g_icons.end() && it->second == kReplay) {
         if (R32(esp + 8) == kAccept) ReplayRequest(true);
+    } else if (it != g_icons.end() && it->second == kExit) {
+        // as the system's own quit (native/main.cpp's Dispatch: the log flushed, the kernel shut down)
+        if (R32(esp + 8) == kAccept) {
+            SDL_Event quit{};
+            quit.type = SDL_EVENT_QUIT;
+            SDL_PushEvent(&quit);
+        }
     } else if (it != g_icons.end() && it->second == kAndroidSection && g_android_react) {
         // a menu's: as OPTIONS beside it, and the options it opens are ANDROID OPTIONS'
         CallThis(ctx, ctx.ecx, g_android_react, {R32(esp + 4), R32(esp + 8), R32(esp + 12), R32(esp + 16), R32(esp + 20)});
@@ -1132,6 +1144,9 @@ X86_FUNC(sub_00128AB0) {
             g_icons.clear();
             uint32_t host = AddIcon(ctx, menu, kAndroidSection);
             PlaceBeside(menu, m.options_vtable, host);
+            // the main menu's: EXIT after it
+            if (&m == &kOptionsMenus[0] && host)
+                if (uint32_t exit = AddIcon(ctx, menu, kExit)) PlaceBeside(menu, m.options_vtable, exit, host);
             // the pause menu's (in a race): CINEMATIC MODE after it, then REPLAY
             if (&m == &kOptionsMenus[kPauseMenu] && host)
                 if (uint32_t cine = AddIcon(ctx, menu, kCinematic)) {
