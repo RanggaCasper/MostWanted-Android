@@ -5,9 +5,11 @@
 #include "common/music.h"
 
 #include <fcntl.h>
+#ifdef __ANDROID__
 #include <media/NdkMediaCodec.h>
 #include <media/NdkMediaExtractor.h>
 #include <media/NdkMediaFormat.h>
+#endif
 #include <unistd.h>
 
 #include <algorithm>
@@ -178,6 +180,7 @@ struct Resampler {
 };
 
 // false if nothing of it could be played
+#ifdef __ANDROID__
 bool PlaySong(const std::filesystem::path& path, uint32_t skips) {
     int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) return false;
@@ -274,6 +277,10 @@ bool PlaySong(const std::filesystem::path& path, uint32_t skips) {
     close(fd);
     return played;
 }
+#else
+// the Linux build has no decoder of its own here: no song plays
+bool PlaySong(const std::filesystem::path&, uint32_t) { return false; }
+#endif
 
 // what the panel asked for, or the song after the last among those the list lets play here
 bool NextSong(std::mt19937& random, std::filesystem::path* path) {
