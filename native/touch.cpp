@@ -1348,7 +1348,7 @@ void DumpGuest() {
     std::ofstream f(p, std::ios::binary);
     // the image, 0x10000 to 0x508040 (default.xbe's base and size), then the physical memory
     f.write(static_cast<const char*>(kernel::HostPtr(0x10000)), 0x508040 - 0x10000);
-    f.write(static_cast<const char*>(kernel::HostPtr(0x80000000u)), 64u << 20);
+    f.write(static_cast<const char*>(kernel::HostPtr(0x80000000u)), mem::kPhysicalSize);
     LOGI("dump: %s", p.c_str());
 }
 

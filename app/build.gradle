@@ -90,4 +90,21 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
+    packaging {
+        resources {
+            excludes += ["META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/DEPENDENCIES", "META-INF/versions/**"]
+        }
+    }
+}
+
+// the archives add-on cars come in: ModArchive
+dependencies {
+    // 7z's LZMA; some archives' streams need the relaxed end its decoder turns on (1.21's called them corrupt)
+    implementation "org.apache.commons:commons-compress:1.27.1"
+    implementation "org.tukaani:xz:1.10"
+    // RAR of any version; 1.1.7 wants compileSdk 37. Its AndroidX annotations mean nothing at run time, and this app has no AndroidX
+    implementation("me.zhanghai.android.libarchive:library:1.1.6") {
+        exclude group: "androidx.annotation"
+    }
 }

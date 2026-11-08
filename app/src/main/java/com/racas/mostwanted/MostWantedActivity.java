@@ -3,6 +3,7 @@ package com.racas.mostwanted;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
@@ -321,10 +322,14 @@ public class MostWantedActivity extends SDLActivity {
 
     // the MostWanted folder on each SD card or USB stick mounted, as native/game_files.cpp looks in them
     private List<File> cardFolders() {
+        return cardFolders(this);
+    }
+
+    static List<File> cardFolders(Context context) {
         List<File> out = new ArrayList<>();
         if (!ALL_FILES_ACCESS) {
             // Android 10: each card's root above the app's own folder on it, <root>/Android/data/<package>/files
-            File[] own = getExternalFilesDirs(null);
+            File[] own = context.getExternalFilesDirs(null);
             for (int i = 1; i < own.length; i++) {
                 File root = own[i];
                 for (int up = 0; root != null && up < 4; up++) root = root.getParentFile();
@@ -332,7 +337,7 @@ public class MostWantedActivity extends SDLActivity {
             }
             return out;
         }
-        StorageManager sm = getSystemService(StorageManager.class);
+        StorageManager sm = context.getSystemService(StorageManager.class);
         if (sm == null) return out;
         for (StorageVolume v : sm.getStorageVolumes()) {
             File root = v.getDirectory();

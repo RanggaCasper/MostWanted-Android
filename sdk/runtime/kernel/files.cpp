@@ -19,6 +19,7 @@ namespace {
 std::mutex g_links_lock;
 std::map<std::string, std::string> g_links;    // upper case "\??\D:" -> "\Device\CdRom0"
 std::map<std::string, fs::path> g_devices;     // upper case device -> host directory
+fs::path g_disc_overlay;                       // files read in place of the disc's, set before Boot
 constexpr char kCdRom[] = "\\DEVICE\\CDROM0";
 
 std::string Upper(std::string s) {
@@ -190,6 +191,8 @@ std::string ReadCString(uint32_t va, size_t max) {
     return s;
 }
 
+void SetDiscOverlay(const std::string& dir) { g_disc_overlay = dir; }
+
 void MountDefaults(const std::string& game_dir, const std::string& data_dir) {
     std::lock_guard<std::mutex> lock(g_links_lock);
     fs::path d = data_dir;
@@ -271,8 +274,15 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     // no Xbox name holds ':', and fs::path would take "D:" as a host drive
     for (auto& part : parts)
         if (part.find(':') != std::string::npos) return {};
-    if (best->first == kCdRom)
+    if (best->first == kCdRom) {
+        // the disc's file over which the player's mods lay their own (MostWanted/mods)
+        if (!g_disc_overlay.empty()) {
+            std::error_code ec;
+            fs::path over = MatchCase(g_disc_overlay, parts);
+            if (fs::is_regular_file(over, ec)) return {over.string()};
+        }
         if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
+    }
     return {MatchCase(best->second, parts).string()};
 }
 

@@ -46,4 +46,47 @@
     <string name="game_imported">Game berhasil diimpor</string>
     <string name="game_imported_text">%1$s sudah siap. Game akan dimulai sebentar lagi.</string>
     <string name="import_failed">Impor gagal</string>
+
+    <!-- add-on cars -->
+    <string name="mods_title">Most Wanted Mods Loader</string>
+    <string name="mods_language">Bahasa</string>
+    <string name="mods_subtitle">Untuk Need for Speed: Most Wanted</string>
+    <string name="mods_update_title">Perbarui mobil terpasang</string>
+    <string name="mods_update_text">Mobil terpasang dibuat dengan converter lama: catnya tidak punya pantulan. Buat ulang sekarang? Hanya beberapa detik, tidak perlu mengunduh apa pun.</string>
+    <string name="mods_update">Perbarui</string>
+    <string name="mods_later">Nanti</string>
+    <string name="mods_version">Versi</string>
+    <string name="mods_credit_cars">Mobil karya para pembuatnya, dari NFSAddons</string>
+    <string name="mods_open_site_sub">Buka situsnya di browser</string>
+    <string name="mods_from_file_sub">File ZIP, 7z, atau RAR yang sudah diunduh</string>
+    <string name="mods_steps">Cara pakai</string>
+    <string name="mods_how">Unduh mobil Most Wanted di NFSAddons\nPasang di sini dari file, atau buka file itu dengan Mods Loader\nKetuk Main: mobilnya sudah ada di game</string>
+    <string name="mods_open_site">Cari mobil di NFSAddons</string>
+    <string name="mods_reading">Membaca file…</string>
+    <string name="mods_no_browser">HP ini tidak punya browser untuk membuka situsnya.</string>
+    <string name="mods_no_picker">HP ini tidak punya pemilih file untuk memilih file mobil.</string>
+    <string name="mods_none">Belum ada mobil terpasang</string>
+    <string name="mods_manage">Mobil terpasang</string>
+    <string name="mods_remove">Hapus</string>
+    <string name="mods_from_file">Pasang dari file</string>
+    <string name="mods_play">Main</string>
+    <string name="mods_install">Pasang</string>
+    <string name="mods_confirm">Pasang %1$s ke game? File ini akan diubah ke format game Xbox langsung di HP.</string>
+    <string name="mods_game_closes">Game sedang terbuka dan akan ditutup. Progres sejak save terakhir akan hilang.</string>
+    <string name="mods_converting">Mengubah ke format game…</string>
+    <string name="mods_done">Mobil terpasang</string>
+    <string name="mods_done_addon">%1$s sudah masuk ke game.</string>
+    <string name="mods_done_pack">%1$d mobil sudah masuk ke game.</string>
+    <string name="mods_pack_failed">Yang tidak bisa dipasang: %1$s</string>
+    <string name="mods_failed">Tidak terpasang</string>
+    <string name="mods_only_mw_cars">Hanya mobil untuk Need for Speed: Most Wanted yang bisa dipasang.</string>
+    <string name="mods_need_access">Buka game sekali dan izinkan akses penyimpanannya, karena fitur ini juga memerlukannya.</string>
+    <string name="mods_no_game">File game tidak ditemukan. Letakkan dulu di %1$s, karena mobil dibuat dari file itu.</string>
+    <string name="mods_no_car">Arsip ini tidak berisi mobil yang dikenali converter (tidak ada folder berisi GEOMETRY.BIN dan TEXTURES.BIN).</string>
+    <string name="mods_name_long">Nama folder mobil, %1$s, terlalu panjang untuk game.</string>
+    <string name="mods_unsupported">Format mobil ini belum didukung converter: %1$s</string>
+    <string name="mods_bad_archive">Arsip ini tidak bisa dibuka di sini (%1$s). Yang bisa: ZIP, 7z, dan RAR.</string>
+    <string name="mods_too_big">Mobil ini terlalu besar untuk dikonversi di HP ini.</string>
+    <string name="mods_error">Gagal: %1$s</string>
+    <string name="mods_remove_text">Hapus %1$s? Save game tetap ada, tetapi mobil ini keluar dari daftar mobilnya.</string>
 </resources>

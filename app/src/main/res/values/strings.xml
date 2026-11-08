@@ -51,4 +51,47 @@
     <string name="game_imported">Game imported</string>
     <string name="game_imported_text">%1$s is in place. The game starts in a moment.</string>
     <string name="import_failed">Import failed</string>
+
+    <!-- add-on cars -->
+    <string name="mods_title">Most Wanted Mods Loader</string>
+    <string name="mods_language">Language</string>
+    <string name="mods_subtitle">For Need for Speed: Most Wanted</string>
+    <string name="mods_update_title">Update installed cars</string>
+    <string name="mods_update_text">Installed cars were made by an older converter: their paint has no reflection. Make them again now? It takes a few seconds; nothing needs downloading.</string>
+    <string name="mods_update">Update</string>
+    <string name="mods_later">Later</string>
+    <string name="mods_version">Version</string>
+    <string name="mods_credit_cars">Cars by their authors, from NFSAddons</string>
+    <string name="mods_open_site_sub">Opens the site in your browser</string>
+    <string name="mods_from_file_sub">A ZIP, 7z or RAR you downloaded</string>
+    <string name="mods_steps">How it works</string>
+    <string name="mods_how">Download a Most Wanted car on NFSAddons\nInstall it here from the file, or open the file with Mods Loader\nTap Play: the car is in the game</string>
+    <string name="mods_open_site">Get cars on NFSAddons</string>
+    <string name="mods_reading">Reading the file…</string>
+    <string name="mods_no_browser">This phone has no browser to open the site with.</string>
+    <string name="mods_no_picker">This phone has no file picker to choose the car\'s file with.</string>
+    <string name="mods_none">No cars installed yet</string>
+    <string name="mods_manage">Installed cars</string>
+    <string name="mods_remove">Remove</string>
+    <string name="mods_from_file">Install from file</string>
+    <string name="mods_play">Play</string>
+    <string name="mods_install">Install</string>
+    <string name="mods_confirm">Install %1$s in the game? It is made into the Xbox game\'s format here on the phone.</string>
+    <string name="mods_game_closes">The game is open and will be closed. Progress since its last save is lost.</string>
+    <string name="mods_converting">Making it into the game\'s format…</string>
+    <string name="mods_done">Car installed</string>
+    <string name="mods_done_addon">%1$s is in the game.</string>
+    <string name="mods_done_pack">%1$d cars are in the game.</string>
+    <string name="mods_pack_failed">These would not go in: %1$s</string>
+    <string name="mods_failed">Not installed</string>
+    <string name="mods_only_mw_cars">Only cars for Need for Speed: Most Wanted can be installed.</string>
+    <string name="mods_need_access">Open the game once and allow its storage access: this needs it too.</string>
+    <string name="mods_no_game">The game\'s files were not found. Put them in %1$s first: the car is built from them.</string>
+    <string name="mods_no_car">This archive has no car in it the converter knows (no folder with a GEOMETRY.BIN and TEXTURES.BIN).</string>
+    <string name="mods_name_long">The car\'s folder name, %1$s, is too long for the game.</string>
+    <string name="mods_unsupported">This car is in a format the converter doesn\'t handle yet: %1$s</string>
+    <string name="mods_bad_archive">This archive can\'t be opened here (%1$s). ZIP, 7z and RAR can.</string>
+    <string name="mods_too_big">This car is too large to convert on this phone.</string>
+    <string name="mods_error">It failed: %1$s</string>
+    <string name="mods_remove_text">Remove %1$s? The game\'s saves stay; it leaves their car lists.</string>
 </resources>

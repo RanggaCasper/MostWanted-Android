@@ -1056,6 +1056,11 @@ using namespace game;
 X86_EXTERN_FUNC(__imp__sub_000C5900);
 X86_FUNC(sub_000C5900) {
     uint32_t hash = kernel::R32(ctx.esp + 4);
+    if (uint32_t name = game::ModCarTexture(ctx, hash)) {
+        ctx.eax = name;
+        ctx.esp += 4;
+        return;
+    }
     uint32_t page = hash - kIconHashes;
     if (page >= uint32_t(kIconCount)) return __imp__sub_000C5900(ctx, base);
     if (!g_textures[page]) g_textures[page] = MakeTexture(ctx, int(page));

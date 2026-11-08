@@ -29,6 +29,7 @@
         android:hardwareAccelerated="true"
         android:extractNativeLibs="false"
         android:requestLegacyExternalStorage="true"
+        android:largeHeap="true"
         android:appCategory="game"
         android:isGame="true"
         android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
@@ -44,6 +45,47 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- add-on cars, an icon of its own; its process keeps the game's libraries out and can stop the game's -->
+        <activity
+            android:name=".ModsActivity"
+            android:label="@string/mods_title"
+            android:icon="@mipmap/ic_mods"
+            android:roundIcon="@mipmap/ic_mods"
+            android:exported="true"
+            android:process=":mods"
+            android:taskAffinity="com.racas.mostwanted.mods"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- a car's archive opened or shared from the browser's downloads or a file manager -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/x-rar-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/rar" />
+            </intent-filter>
+            <!-- a share has its file in EXTRA_STREAM, no URI: a filter naming a scheme would not match it -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/x-rar-compressed" />
+                <data android:mimeType="application/vnd.rar" />
+                <data android:mimeType="application/rar" />
             </intent-filter>
         </activity>
     </application>

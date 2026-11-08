@@ -22,6 +22,7 @@
 /iso/
 /Iso/
 /extracted/
+/mods/
 
 # runtime files
 mostwanted.toml
@@ -36,3 +37,6 @@ mostwanted.toml
 
 # Local temporary folder
 .local
+
+# livery studio
+/studio/

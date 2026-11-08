@@ -72,5 +72,7 @@ bool Racing();    // src/game/game.cpp, any thread: the game flow is in a race (
 inline std::atomic<bool> g_reset_car{false};  // native/touch.cpp's RESET, taken by ResetCarFrame
 void ResetCarFrame(X86Context& ctx);          // src/game/game.cpp: game thread, at each present
 void DragShiftFrame(X86Context& ctx);   // src/game/game.cpp: game thread, at each present
+void ModCarsFrame(X86Context& ctx);     // src/game/car_mods.cpp: game thread, at each present
+uint32_t ModCarTexture(X86Context& ctx, uint32_t hash);  // src/game/car_mods.cpp: an add-on's name texture, or 0
 
 }  // namespace game

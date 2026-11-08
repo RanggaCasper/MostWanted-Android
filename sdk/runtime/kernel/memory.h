@@ -7,7 +7,7 @@ constexpr uint32_t kPage = 0x1000;
 constexpr uint32_t kUserLow = 0x00010000;
 constexpr uint32_t kUserHigh = 0x7FFE0000;
 constexpr uint32_t kContiguousBase = 0x80000000;  // guest VA = kContiguousBase | physical
-constexpr uint32_t kPhysicalSize = 64u << 20;
+constexpr uint32_t kPhysicalSize = 128u << 20;  // a retail box's 64 MB, doubled as a devkit's: src/game/car_mods.cpp gives it to the pools
 constexpr uint32_t kWriteCombineBase = 0xF0000000;
 constexpr uint32_t kKernelDataBase = 0x80000000;   // first physical megabyte holds kernel variables
 constexpr uint32_t kKernelDataSize = 0x00100000;
