@@ -65,8 +65,8 @@
     <string name="mods_reading">Membaca file…</string>
     <string name="mods_no_browser">HP ini tidak punya browser untuk membuka situsnya.</string>
     <string name="mods_no_picker">HP ini tidak punya pemilih file untuk memilih file mobil.</string>
-    <string name="mods_none">Belum ada mobil terpasang</string>
-    <string name="mods_manage">Mobil terpasang</string>
+    <string name="mods_none">Belum ada mod terpasang</string>
+    <string name="mods_manage">Mod terpasang</string>
     <string name="mods_remove">Hapus</string>
     <string name="mods_from_file">Pasang dari file</string>
     <string name="mods_play">Main</string>
@@ -82,11 +82,14 @@
     <string name="mods_only_mw_cars">Hanya mobil untuk Need for Speed: Most Wanted yang bisa dipasang.</string>
     <string name="mods_need_access">Buka game sekali dan izinkan akses penyimpanannya, karena fitur ini juga memerlukannya.</string>
     <string name="mods_no_game">File game tidak ditemukan. Letakkan dulu di %1$s, karena mobil dibuat dari file itu.</string>
-    <string name="mods_no_car">Arsip ini tidak berisi mobil yang dikenali converter (tidak ada folder berisi GEOMETRY.BIN dan TEXTURES.BIN).</string>
+    <string name="mods_no_car">Arsip ini tidak berisi mobil atau paket tekstur yang dikenali converter (tidak ada folder berisi GEOMETRY.BIN dan TEXTURES.BIN, tidak ada TexturePackInfo.json beserta gambarnya).</string>
     <string name="mods_name_long">Nama folder mobil, %1$s, terlalu panjang untuk game.</string>
     <string name="mods_unsupported">Format mobil ini belum didukung converter: %1$s</string>
     <string name="mods_bad_archive">Arsip ini tidak bisa dibuka di sini (%1$s). Yang bisa: ZIP, 7z, dan RAR.</string>
     <string name="mods_too_big">Mobil ini terlalu besar untuk dikonversi di HP ini.</string>
     <string name="mods_error">Gagal: %1$s</string>
+    <string name="mods_texture_pack">Paket tekstur · %1$d tekstur</string>
+    <string name="mods_reading_files">Membaca arsip… %1$s file</string>
+    <string name="mods_remove_pack_text">Hapus %1$s? Tekstur asli game akan kembali.</string>
     <string name="mods_remove_text">Hapus %1$s? Save game tetap ada, tetapi mobil ini keluar dari daftar mobilnya.</string>
 </resources>

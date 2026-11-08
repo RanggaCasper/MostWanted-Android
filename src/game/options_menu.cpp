@@ -766,6 +766,7 @@ auto GraphicsFields() {
         o.yellow_tint,
         o.night_mode,
         o.motion_blur,
+        o.texture_packs,
         o.screen_filter
     );
 }

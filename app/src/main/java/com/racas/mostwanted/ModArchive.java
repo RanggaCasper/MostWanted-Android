@@ -33,11 +33,18 @@ final class ModArchive {
 
     private static final int MAX_FILE = 256 << 20, MAX_ALL = 1 << 30;
     private static final int SEVEN_Z_MEMORY_KB = 256 << 10;
+    private static java.util.function.Consumer<String> progress = line -> {};
 
     private ModArchive() {}
 
     // the wanted files by their paths in the archive, with / in them. spool is emptied first
     static Map<String, File> read(File file, File spool) throws IOException {
+        return read(file, spool, line -> {});
+    }
+
+    // log: "read <n>" now and then, the files kept so far
+    static Map<String, File> read(File file, File spool, java.util.function.Consumer<String> log) throws IOException {
+        progress = log;
         clear(spool);
         if (!spool.isDirectory() && !spool.mkdirs()) throw new IOException("cannot write to " + spool);
         byte[] m = new byte[8];
@@ -57,7 +64,20 @@ final class ModArchive {
         spool.delete();
     }
 
-    private static void save(Map<String, File> out, File spool, String name, byte[] data) throws IOException {
+    // a car's files, and a texture pack's (TexturePacks): its json, and its images shrunk as they come, an archive of
+    // them often more than the cache would hold as they are
+    private static boolean wanted(String name) {
+        return CarConverter.wanted(name) || TexturePacks.wanted(name);
+    }
+
+    private static void save(Map<String, File> out, File spool, String name, byte[] data, int[] total) throws IOException {
+        if (TexturePacks.isImage(name) && !CarConverter.wanted(name)) {
+            data = TexturePacks.shrink(data);
+            if (data == null) return;  // a format the game's draws cannot take
+        }
+        total[0] += data.length;
+        if (total[0] > MAX_ALL || total[0] < 0) throw new IOException("the archive's files are too large");
+        if (out.size() % 20 == 19) progress.accept("read " + (out.size() + 1));
         File f = new File(spool, String.valueOf(out.size()));
         try (FileOutputStream o = new FileOutputStream(f)) {
             o.write(data);
@@ -81,9 +101,7 @@ final class ModArchive {
             int r = in.read(b, n, b.length - n);
             if (r < 0) break;
             n += r;
-            if (total[0] + n > MAX_ALL) throw new IOException("the archive's files are too large");
         }
-        total[0] += n;
         return n == b.length ? b : java.util.Arrays.copyOf(b, n);
     }
 
@@ -98,9 +116,9 @@ final class ModArchive {
             Enumeration<? extends ZipEntry> en = z.entries();
             while (en.hasMoreElements()) {
                 ZipEntry e = en.nextElement();
-                if (e.isDirectory() || !CarConverter.wanted(e.getName())) continue;
+                if (e.isDirectory() || !wanted(e.getName())) continue;
                 try (InputStream in = z.getInputStream(e)) {
-                    save(out, spool, e.getName(), all(in::read, e.getSize(), total));
+                    save(out, spool, e.getName(), all(in::read, e.getSize(), total), total);
                 }
             }
         }
@@ -122,8 +140,8 @@ final class ModArchive {
         try (SevenZFile z = new SevenZFile(file, options)) {
             SevenZArchiveEntry e;
             while ((e = z.getNextEntry()) != null) {
-                if (e.isDirectory() || !CarConverter.wanted(e.getName())) continue;
-                save(out, spool, e.getName(), all(z::read, e.getSize(), total));
+                if (e.isDirectory() || !wanted(e.getName())) continue;
+                save(out, spool, e.getName(), all(z::read, e.getSize(), total), total);
             }
         }
         return out;
@@ -148,7 +166,7 @@ final class ModArchive {
                 byte[] raw = ArchiveEntry.pathname(e);
                 String name = raw == null ? ArchiveEntry.pathnameUtf8(e) : new String(raw, StandardCharsets.UTF_8);
                 if (name == null || (ArchiveEntry.filetype(e) & ArchiveEntry.AE_IFMT) != ArchiveEntry.AE_IFREG
-                        || !CarConverter.wanted(name))
+                        || !wanted(name))
                     continue;
                 long size = ArchiveEntry.sizeIsSet(e) ? ArchiveEntry.size(e) : 0;
                 save(out, spool, name, all((b, off, len) -> {
@@ -160,7 +178,7 @@ final class ModArchive {
                     if (n == 0) return -1;
                     buf.get(b, off, n);
                     return n;
-                }, size, total));
+                }, size, total), total);
             }
         } finally {
             Archive.readFree(a);

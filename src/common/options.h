@@ -46,6 +46,7 @@ struct Options {
     bool night_mode = false;   // night time visual mod: nocturnal grading, headlights, dark sky, src/game/game.cpp
     bool music_restored = false;  // once: the music switches an earlier build saved at 0 given back, src/game/game.cpp
     bool shader_preload = false;  // native/vulkan.cpp makes earlier runs' shaders and pipelines at the start
+    bool texture_packs = true;  // the Mods Loader's texture packs drawn over the game's own, src/game/texture_packs.cpp
     bool motion_blur = true;   // the blur by speed and the nitrous' radial blur, src/game/game.cpp skips them when off
     // cheats, src/game/game.cpp's ApplyCheats
     bool cheat_nos = false;           // the nitrous never runs out
@@ -80,6 +81,7 @@ void DragShiftFrame(X86Context& ctx);   // src/game/game.cpp: game thread, at ea
 void MusicFrame(X86Context& ctx);                 // src/game/game.cpp: game thread, at each present
 void ModCarsFrame(X86Context& ctx);     // src/game/car_mods.cpp: game thread, at each present
 uint32_t ModCarTexture(X86Context& ctx, uint32_t hash);  // src/game/car_mods.cpp: an add-on's name texture, or 0
+void TexturePacksFrame(X86Context& ctx);  // src/game/texture_packs.cpp: game thread, at each present
 // cinematic mode (src/game/cinematic.cpp): the pause menu's icon asks for it, the next frame enters
 void CinematicRequest(bool from_pause_menu = false);  // from the menu: leaving opens the pause menu again
 bool CinematicActive();

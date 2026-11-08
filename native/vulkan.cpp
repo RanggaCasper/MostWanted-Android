@@ -17,7 +17,9 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -31,6 +33,7 @@
 
 #include "app/app.h"
 #include "common/aspect.h"
+#include "common/texture_packs.h"
 #include "common/video.h"
 #include "core/diag.h"
 #include "core/log.h"
@@ -371,6 +374,156 @@ void DecodeDxt(Host host, const std::vector<uint8_t>& in, uint32_t row_pitch, ui
             }
 }
 
+// ---- texture packs' images (src/common/texture_packs.h), read and made ready to upload on a thread of their own: a
+// 1024 texel DXT5 is over a megabyte, and the track streams a section's worth in at once
+
+struct RepImage {
+    Host host = Host::BGRA8;  // BC1 to BC3 as the file has it, or BGRA8 (32 bit files, and DXT decoded for a GPU with no BC)
+    uint32_t w = 0, h = 0;
+    std::vector<std::vector<uint8_t>> levels;  // rows packed: block rows for BC
+    size_t bytes = 0;
+};
+
+// a DDS of DXT1, DXT3, DXT5 or 32 bit BGRA, its mips as many as it has; a GPU with no BC gets it decoded and at most
+// kNoBcMax texels across, four times the memory per texel
+std::unique_ptr<RepImage> ReadRepImage(const std::string& path, bool bc) {
+    constexpr uint32_t kNoBcMax = 512;
+    std::ifstream f(path, std::ios::binary);
+    std::vector<uint8_t> file((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    auto u32 = [&](size_t o) {
+        uint32_t v;
+        std::memcpy(&v, &file[o], 4);
+        return v;
+    };
+    if (file.size() < 128 || std::memcmp(file.data(), "DDS ", 4)) return nullptr;
+    uint32_t h = u32(12), w = u32(16), flags = u32(8), mips = (flags & 0x20000) ? std::max(1u, u32(28)) : 1;
+    uint32_t pf_flags = u32(80), fourcc = u32(84), bits = u32(88), rmask = u32(92), amask = u32(104);
+    if (!w || !h || w > 16384 || h > 16384 || (u32(112) & 0x200)) return nullptr;  // no cube maps
+    auto im = std::make_unique<RepImage>();
+    bool compressed = pf_flags & 4;
+    if (compressed) {
+        if (fourcc == 0x31545844) im->host = Host::BC1;       // DXT1
+        else if (fourcc == 0x33545844) im->host = Host::BC2;  // DXT3
+        else if (fourcc == 0x35545844) im->host = Host::BC3;  // DXT5
+        else return nullptr;
+    } else if (!((pf_flags & 0x40) && bits == 32)) {
+        return nullptr;
+    }
+    bool swap_rb = !compressed && rmask == 0xFF, opaque = !compressed && !((pf_flags & 1) && amask);
+    uint32_t block = im->host == Host::BC1 ? 8 : 16;
+    auto level_size = [&](uint32_t lw, uint32_t lh) {
+        return compressed ? size_t(std::max(1u, (lw + 3) / 4)) * std::max(1u, (lh + 3) / 4) * block : size_t(lw) * lh * 4;
+    };
+    // a BC image must be whole blocks: one that is not is decoded, its first level alone
+    bool decode = compressed && (!bc || (w & 3) || (h & 3));
+    if (decode && ((w & 3) || (h & 3))) mips = 1;
+    size_t at = 128;
+    uint32_t lw = w, lh = h;
+    for (uint32_t l = 0; l < mips; l++, lw = std::max(1u, lw / 2), lh = std::max(1u, lh / 2)) {
+        size_t n = level_size(lw, lh);
+        if (at + n > file.size()) break;
+        bool skip = !bc && std::max(lw, lh) > kNoBcMax && l + 1 < mips;
+        if (!skip) {
+            if (im->levels.empty()) im->w = lw, im->h = lh;
+            std::vector<uint8_t> px(file.begin() + long(at), file.begin() + long(at + n));
+            if (decode) {
+                std::vector<uint8_t> out;
+                DecodeDxt(im->host, px, std::max(1u, (lw + 3) / 4) * block, lw, lh, 1, out);
+                px.swap(out);
+            } else if (!compressed) {
+                for (size_t i = 0; i + 3 < px.size(); i += 4) {
+                    if (swap_rb) std::swap(px[i], px[i + 2]);
+                    if (opaque) px[i + 3] = 255;
+                }
+            }
+            im->bytes += px.size();
+            im->levels.push_back(std::move(px));
+        }
+        at += n;
+    }
+    if (decode) im->host = Host::BGRA8;
+    if (im->levels.empty()) return nullptr;
+    return im;
+}
+
+struct RepLoader {
+    std::mutex lock;
+    std::condition_variable wake;
+    std::deque<std::pair<uint32_t, bool>> queue;  // hash, the GPU has BC
+    std::unordered_set<uint32_t> asked, bad;
+    std::unordered_map<uint32_t, std::unique_ptr<RepImage>> ready;
+    std::deque<uint32_t> ready_order;
+    size_t ready_bytes = 0;
+    bool started = false;
+
+    // its image if it is ready, else asked for and null till it is; a file that will not read is not asked again
+    std::unique_ptr<RepImage> Take(uint32_t hash, bool bc) {
+        std::lock_guard<std::mutex> g(lock);
+        auto it = ready.find(hash);
+        if (it != ready.end()) {
+            std::unique_ptr<RepImage> im = std::move(it->second);
+            ready.erase(it);
+            ready_bytes -= im->bytes;
+            asked.erase(hash);
+            return im;
+        }
+        if (bad.count(hash) || !asked.insert(hash).second) return nullptr;
+        queue.emplace_back(hash, bc);
+        if (!started) {
+            started = true;
+            std::thread([this] { Run(); }).detach();
+        }
+        wake.notify_one();
+        return nullptr;
+    }
+
+    void Run() {
+        pthread_setname_np(pthread_self(), "TexPacks");
+        constexpr size_t kReadyMax = 96u << 20;  // made and not taken yet: a texture streamed out again before its draw
+        for (;;) {
+            std::pair<uint32_t, bool> job;
+            {
+                std::unique_lock<std::mutex> g(lock);
+                wake.wait(g, [&] { return !queue.empty(); });
+                job = queue.front();
+                queue.pop_front();
+            }
+            std::string path = texpacks::PathOf(job.first);
+            std::unique_ptr<RepImage> im = path.empty() ? nullptr : ReadRepImage(path, job.second);
+            std::lock_guard<std::mutex> g(lock);
+            if (!im) {
+                LOGW("texpacks: %s would not read", path.c_str());
+                bad.insert(job.first);
+                asked.erase(job.first);
+                continue;
+            }
+            ready_bytes += im->bytes;
+            ready[job.first] = std::move(im);
+            ready_order.push_back(job.first);
+            while (ready_bytes > kReadyMax && !ready_order.empty()) {
+                uint32_t old = ready_order.front();
+                ready_order.pop_front();
+                auto it = ready.find(old);
+                if (it == ready.end()) continue;
+                ready_bytes -= it->second->bytes;
+                ready.erase(it);
+                asked.erase(old);
+            }
+            if (ready_order.size() > ready.size() * 2 + 64) {  // taken ones' leftovers
+                std::deque<uint32_t> kept;
+                for (uint32_t k : ready_order)
+                    if (ready.count(k)) kept.push_back(k);
+                ready_order.swap(kept);
+            }
+        }
+    }
+};
+
+RepLoader& Reps() {
+    static RepLoader* loader = new RepLoader;  // never destroyed: its thread outlives the backend
+    return *loader;
+}
+
 // ---- device memory: 64 MB blocks per memory type, first fit inside them; big allocations get their own
 
 class Allocator {
@@ -542,6 +695,7 @@ struct Tex {
     uint8_t calm = 0;     // whole hashes in a row that found it the same
     uint64_t frame = 0;
     uint64_t palette = 0;
+    uint32_t replaced = 0;  // a texture pack's image for this name's hash (BindReplacement), not the guest's memory
 };
 
 struct PsoKey {
@@ -1169,6 +1323,7 @@ private:
                                  DrawTextures& stages);
     VkImageView BindCubeTargets(int stage, const TextureDesc& d, DrawTextures& stages);
     VkImageView BindFrameRegion(int stage, const TextureDesc& d, DrawTextures& stages);
+    VkImageView BindReplacement(int stage, const TextureDesc& d, uint64_t key, DrawTextures& stages);
     bool CreateTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, uint64_t key);
     void UploadTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, const uint8_t* p, const uint32_t* colours);
     void BuildPipelineKey(const State& s, const Assembled& a, const DrawShaders& sh, PsoKey& k);
@@ -1279,6 +1434,10 @@ private:
     std::unordered_set<uint64_t> full_scale_;  // effect sized targets drawn with a frame sized one: at its scale
     uint32_t presented_[4] = {};  // the frame buffers presented, their data: FrameRegion's parents
     std::unordered_map<uint64_t, Tex> textures_;
+    // the texture packs' textures the game has in memory, by their data (texpacks::Snapshot, once a frame)
+    std::unordered_map<uint32_t, texpacks::Bound> rep_bound_;
+    uint64_t rep_gen_ = 0, rep_frame_ = ~0ull;
+    VkDeviceSize rep_budget_ = 0;  // the packs' bytes uploaded this frame
     std::unordered_map<uint32_t, CubeOfTargets> cubes_;
     std::unordered_map<uint32_t, Image> regions_;  // a frame's rows read as a texture, by its data (BindFrameRegion)
     uint64_t view_gen_ = 1;  // image views destroyed so far (Frame::sets)
@@ -3312,8 +3471,10 @@ VkImageView VulkanBackend::BindGuestTexture(const State& s, int stage, const Tex
     StagePalette palette;
     ReadStagePalette(s, stage, d, palette);
     const uint64_t key = uint64_t(palette.va) << 32 | d.data;
+    if (!palette.va)
+        if (VkImageView v = BindReplacement(stage, d, key, stages)) return v;
     Tex& tx = textures_[key];
-    bool same = SameTexture(tx, d);
+    bool same = SameTexture(tx, d) && !tx.replaced;  // a pack's image there before: the guest's again
     if (!same && !CreateTexture(tx, d, fi, key)) return VK_NULL_HANDLE;
     Tex& t = textures_[key];
     if (t.frame != presents_ + 1 || !same || t.palette != palette.hash) {
@@ -3345,6 +3506,72 @@ VkImageView VulkanBackend::BindGuestTexture(const State& s, int stage, const Tex
     stages.fmt[stage] = t.fmt;
     stages.levels[stage] = t.levels;
     return t.img.view;
+}
+
+// A texture pack's image for a texture the game has at this address (src/common/texture_packs.h), the game's own size
+// there still: the guest's memory is not read, and the draw samples the pack's larger image by the same coordinates
+// (swizzled textures' are normalized). Until its file is read, and past this frame's share of uploads, the guest's own
+VkImageView VulkanBackend::BindReplacement(int stage, const TextureDesc& d, uint64_t key, DrawTextures& stages) {
+    if (presents_ != rep_frame_) {
+        rep_frame_ = presents_;
+        rep_budget_ = 0;
+        if (texpacks::Generation() != rep_gen_) texpacks::Snapshot(rep_bound_, rep_gen_);
+    }
+    if (rep_bound_.empty() || d.cube || d.depth != 1 || d.linear) return VK_NULL_HANDLE;
+    auto it = rep_bound_.find(d.data);
+    if (it == rep_bound_.end() || it->second.width != d.width || it->second.height != d.height) return VK_NULL_HANDLE;
+    const uint32_t hash = it->second.hash;
+    auto have = textures_.find(key);
+    Tex* t = have != textures_.end() && have->second.replaced == hash && SameTexture(have->second, d) ? &have->second : nullptr;
+    if (!t) {
+        constexpr VkDeviceSize kFrameBudget = 24ull << 20;
+        if (rep_budget_ >= kFrameBudget) return VK_NULL_HANDLE;
+        std::unique_ptr<RepImage> im = Reps().Take(hash, bc_);
+        if (!im) return VK_NULL_HANDLE;
+        Tex& tx = textures_[key];
+        Retire(tx.img);
+        tx = Tex{};
+        tx.d = d;
+        tx.replaced = hash;
+        switch (im->host) {
+            case Host::BC1: tx.fmt = VK_FORMAT_BC1_RGBA_UNORM_BLOCK; break;
+            case Host::BC2: tx.fmt = VK_FORMAT_BC2_UNORM_BLOCK; break;
+            case Host::BC3: tx.fmt = VK_FORMAT_BC3_UNORM_BLOCK; break;
+            default: tx.fmt = kBgra; break;
+        }
+        tx.levels = uint32_t(im->levels.size());
+        if (!CreateImage(tx.img, tx.fmt, im->w, im->h, 1, 1, tx.levels,
+                         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, VK_IMAGE_VIEW_TYPE_2D, false)) {
+            textures_.erase(key);
+            return VK_NULL_HANDLE;
+        }
+        Transition(tx.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        for (uint32_t l = 0; l < tx.levels; l++) {
+            const std::vector<uint8_t>& px = im->levels[l];
+            Alloc a = Upload(px.size(), 16);
+            if (!a.cpu) {
+                if (gpu_failed_) return VK_NULL_HANDLE;
+                continue;
+            }
+            std::memcpy(a.cpu, px.data(), px.size());
+            uint32_t mw = std::max(im->w >> l, 1u), mh = std::max(im->h >> l, 1u);
+            VkBufferImageCopy c{a.off, 0, 0, {VK_IMAGE_ASPECT_COLOR_BIT, l, 0, 1}, {0, 0, 0}, {mw, mh, 1}};
+            vkCmdCopyBufferToImage(Cb(), a.buf, tx.img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
+        }
+        rep_budget_ += im->bytes;
+        g_perf.tex_bytes += im->bytes;
+        g_perf.texes++;
+        static uint32_t made = 0;
+        if (++made == 1 || made % 100 == 0)
+            LOGR("texpacks: %u images uploaded, the last %08X %ux%u, %u levels, %s", made, hash, im->w, im->h, tx.levels,
+                 im->host == Host::BGRA8 ? "BGRA" : "BC");
+        t = &tx;
+    }
+    t->frame = presents_ + 1;
+    Transition(t->img, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    stages.fmt[stage] = t->fmt;
+    stages.levels[stage] = t->levels;
+    return t->img.view;
 }
 
 VkImageView VulkanBackend::BindTexture(const State& s, int stage, DrawTextures& stages) {

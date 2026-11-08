@@ -107,6 +107,7 @@ const app::GameInfo app::kGame = {
                 {"night_mode", &game::Opt().night_mode, nullptr},
                 {"music_restored", &game::Opt().music_restored, nullptr},
                 {"motion_blur", &game::Opt().motion_blur, nullptr},
+                {"texture_packs", &game::Opt().texture_packs, nullptr},
                 {"shader_preload", &game::Opt().shader_preload, nullptr},
                 {"cheat_nos", &game::Opt().cheat_nos, nullptr},
                 {"cheat_speedbreaker", &game::Opt().cheat_speedbreaker, nullptr},
