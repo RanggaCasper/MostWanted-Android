@@ -1,15 +1,20 @@
 // Need for Speed: Most Wanted (Black Edition) needs no patch of its code to boot: the XDK it calls is all on the host.
 // Its own hooks go here, [[hook]] entries in config/game.toml and X86_FUNC replacements of recompiled functions.
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <strings.h>
 #include <string>
+#include <vector>
 #include <unordered_map>
 
 #include "common/aspect.h"
 #include "common/options.h"
 #include "core/log.h"
 #include "cpu/x86_ops.h"
+#include "common/music.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
 
@@ -140,6 +145,87 @@ struct HeldByte {
         }
     }
 };
+
+// the game's fonts are Latin-1
+static std::string MusicLatin1(const std::string& text) {
+    std::string out;
+    for (size_t i = 0; i < text.size(); i++) {
+        uint8_t c = uint8_t(text[i]);
+        if (c < 0x80) {
+            out += char(c);
+        } else if ((c & 0xE0) == 0xC0 && i + 1 < text.size()) {
+            uint32_t cp = (c & 0x1Fu) << 6 | (uint8_t(text[++i]) & 0x3Fu);
+            out += cp < 0x100 ? char(cp) : '?';
+        } else {
+            while (i + 1 < text.size() && (uint8_t(text[i + 1]) & 0xC0) == 0x80) i++;
+            out += '?';
+        }
+    }
+    return out;
+}
+
+// text for the game, kept: each song's the once
+static uint32_t MusicText(const std::string& text) {
+    static std::unordered_map<std::string, uint32_t> copies;
+    uint32_t& va = copies[text];
+    if (!va) {
+        std::string latin = MusicLatin1(text);
+        va = mem::AllocSystem(uint32_t(latin.size() + 1));
+        if (va) std::memcpy(kernel::HostPtr(va), latin.c_str(), latin.size() + 1);
+    }
+    return va;
+}
+
+// My Music begins as the game's menu music does: at the main menu, or a race if one comes first, past the boot's movies and title.
+// FEng's packages are a list from cFEng's FEngine (0x48E94C, +0xE0, next +4, name +0xC); once there, it stays on
+static bool MusicMayBegin() {
+    constexpr uint32_t kFEng = 0x48E94C, kFirstPackage = 0xE0, kPackageNext = 4, kPackageName = 0xC;
+    static bool reached = false;
+    if (reached) return true;
+    if (Racing()) return reached = true;
+    uint32_t fe = kernel::R32(kFEng);
+    fe = fe && mem::IsCommitted(fe) ? kernel::R32(fe) : 0;
+    uint32_t package = fe && mem::IsCommitted(fe + kFirstPackage) ? kernel::R32(fe + kFirstPackage) : 0;
+    for (int n = 0; package && n < 64 && mem::IsCommitted(package + kPackageName); n++) {
+        uint32_t name = kernel::R32(package + kPackageName);
+        if (name && mem::IsCommitted(name + 7) && !strncasecmp(static_cast<const char*>(kernel::HostPtr(name)), "MainMenu", 8))
+            return reached = true;
+        package = kernel::R32(package + kPackageNext);
+    }
+    return false;
+}
+
+// My Music (native/music.cpp) or the game's EA Trax, as the panel says, EA Trax's own list untouched either way. The game's music
+// shares one buffer with its other sounds, so it can only be stopped in the game: the profile's switch at +0x78 (0x0DC6A0, the
+// option beside Interactive Music, +0x74, which goes on playing in pursuits). My Music plays at the
+// game's own sliders, menu music +0x54 and game music +0x58, and a song's beginning shows on EA Trax's banner (0x1443C0, as 0xB8590)
+void MusicFrame(X86Context& ctx) {
+    constexpr uint32_t kFeDatabase = 0x48EDD4, kProfile = 0x10, kEaTrax = 0x78, kMenuMusic = 0x54, kGameMusic = 0x58;
+    constexpr uint32_t kShowSong = 0x1443C0;
+    if (!music::HasSongs()) return;
+    uint32_t db = kernel::R32(kFeDatabase);
+    uint32_t profile = db && mem::IsCommitted(db + kProfile) ? kernel::R32(db + kProfile) : 0;
+    if (!profile || !mem::IsCommitted(profile + kGameMusic)) return;
+    static int source = -1;
+    int now = music::Source();
+    if (now == music::kMyMusic) {
+        kernel::W32(profile + kEaTrax, 0);
+    } else if (source == music::kMyMusic) {
+        kernel::W32(profile + kEaTrax, 1);  // given back, once: the player's own to change after
+    }
+    source = now;
+    uint32_t bits = kernel::R32(profile + (Racing() ? kGameMusic : kMenuMusic));
+    float level;
+    std::memcpy(&level, &bits, sizeof level);
+    music::SetContext(MusicMayBegin(), Racing(), std::clamp(level, 0.0f, 1.0f));
+    music::Song song;
+    if (music::TakeStarted(&song)) {
+        uint32_t saved[] = {ctx.eax, ctx.ecx, ctx.edx, ctx.ebx, ctx.esi, ctx.edi, ctx.ebp};
+        kernel::CallGuest(ctx, kShowSong, {MusicText(song.title), MusicText(song.artist), MusicText(song.album)});
+        ctx.eax = saved[0], ctx.ecx = saved[1], ctx.edx = saved[2], ctx.ebx = saved[3], ctx.esi = saved[4], ctx.edi = saved[5],
+        ctx.ebp = saved[6];
+    }
+}
 
 void ApplyCheats() {
     const Options& o = Opt();

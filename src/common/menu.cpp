@@ -22,6 +22,7 @@
 #include "common/keys.h"
 #include "common/menu.h"
 #include "common/mouse_keyboard.h"
+#include "common/music.h"
 #include "common/options.h"
 #include "common/pad_binds.h"
 #include "common/translations.h"
@@ -755,11 +756,61 @@ void Defaults() {
     RestoreDefaults(g_page);
 }
 
-void DrawTitle() {
-    std::string title = Ui("CHEATS");
-    float title_pad = (ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(title.c_str()).x) * 0.5f;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(title_pad, 0.0f));
-    ImGui::TextUnformatted(title.c_str());
+bool g_music_tab = false;
+
+// the panel's two pages, one button each, the open one lit
+void DrawTitle(float em) {
+    auto tab = [&](const char* label, bool open) {
+        if (open) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        bool pressed = ImGui::Button(label, ImVec2(em * 10, 0));
+        if (open) ImGui::PopStyleColor();
+        return pressed;
+    };
+    if (tab(Ui("CHEATS").c_str(), !g_music_tab)) g_music_tab = false;
+    ImGui::SameLine();
+    if (tab("MY MUSIC", g_music_tab)) g_music_tab = true;
+}
+
+// My Music: what plays and how, then every song in the folder, with a tap to play it, where it may play and its place in the list
+void DrawMusic(float em) {
+    using namespace music;
+    if (!HasSongs()) {
+        ImGui::TextWrapped("No songs. Put sound files in MostWanted/music and open the game again.");
+        return;
+    }
+    float button = em * 7;
+    bool mine = Source() == kMyMusic;
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Plays");
+    ImGui::SameLine(em * 5);
+    if (ImGui::Button(mine ? "My Music" : "EA Trax", ImVec2(button, 0))) SetSource(mine ? kEaTrax : kMyMusic);
+    ImGui::SameLine();
+    if (ImGui::Button(Shuffle() ? "Random" : "Sequential", ImVec2(button, 0))) SetShuffle(!Shuffle());
+    ImGui::SameLine();
+    if (ImGui::Button("Next", ImVec2(button, 0))) Next();
+    ImGui::Separator();
+    static const char* const kModeNames[] = {"Off", "Menus", "Racing", "All"};
+    std::vector<Entry> list = List();
+    int current = Current();
+    float row_end = ImGui::GetContentRegionAvail().x;
+    float mode_w = em * 5, arrow_w = em * 2.2f, spacing = ImGui::GetStyle().ItemSpacing.x;
+    float side = mode_w + arrow_w * 2 + spacing * 3;
+    for (size_t i = 0; i < list.size(); i++) {
+        ImGui::PushID(int(i));
+        const Song& song = list[i].song;
+        std::string name = std::to_string(i + 1) + "  " + song.title;
+        if (!song.artist.empty()) name += " - " + song.artist;
+        if (mine && int(i) == current) ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 214, 90, 255));
+        if (ImGui::Selectable(name.c_str(), false, ImGuiSelectableFlags_None, ImVec2(row_end - side, ImGui::GetFrameHeight()))) PlayNow(i);
+        if (mine && int(i) == current) ImGui::PopStyleColor();
+        ImGui::SameLine(row_end - side + spacing);
+        if (ImGui::Button(kModeNames[list[i].mode & 3], ImVec2(mode_w, 0))) SetMode(i, uint8_t((list[i].mode + 1) & 3));
+        ImGui::SameLine();
+        if (ImGui::Button("^", ImVec2(arrow_w, 0))) Move(i, -1);
+        ImGui::SameLine();
+        if (ImGui::Button("v", ImVec2(arrow_w, 0))) Move(i, 1);
+        ImGui::PopID();
+    }
 }
 
 constexpr const char* kCredit = "Port by Rangga Casper";
@@ -781,7 +832,8 @@ void DrawFooter(float em) {
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(buttons_pad, 0.0f));
     if (ImGui::Button(Ui("Back", false).c_str(), ImVec2(bw, 0))) ToggleMenu();
     ImGui::SameLine();
-    if (ImGui::Button(Ui("Defaults", false).c_str(), ImVec2(bw, 0))) Defaults();
+    if (g_music_tab) ImGui::Dummy(ImVec2(bw, 0));
+    else if (ImGui::Button(Ui("Defaults", false).c_str(), ImVec2(bw, 0))) Defaults();
 }
 
 // The rows a finger drags up or down scroll with it, as a phone's lists do: the row it came down on is let go, so the
@@ -822,11 +874,12 @@ void DrawPanel() {
     constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar;
     if (ImGui::Begin("##settings", nullptr, kFlags)) {
-        DrawTitle();
+        DrawTitle(em);
         float footer = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetFrameHeightWithSpacing() + em;
         ImGui::BeginChild("##rows", ImVec2(0, -footer), ImGuiChildFlags_NavFlattened);
         g_hovered_box = -1;
-        DrawRows(g_page);
+        if (g_music_tab) DrawMusic(em);
+        else DrawRows(g_page);
         DragScroll();
         ImGui::EndChild();
         DrawFooter(em);
