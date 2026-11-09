@@ -27,6 +27,7 @@ namespace {
 
 constexpr uint32_t kFeDatabase = 0x48EDD4, kProfile = 0x10, kPlayerCarDb = 0x414, kCurrentCar = 0xA8;
 constexpr uint32_t kEntry = 0x14, kEntries = 0xC8, kFrontend = 4, kVehicle = 8, kEmpty = 0xFFFFFFFF;
+constexpr uint32_t kRaceModes = 0x1C, kRaceModeSize = 0x18, kRaceModeCount = 0xB;  // FEDatabase's, 0x126130
 constexpr uint32_t kSetUpEntry = 0x134070;  // thiscall: the car's type and class from its keys
 // a record's slots, 0xFF none, each slot's first byte 0xFF when free (0x1408C0 to 0x1408F7)
 constexpr uint32_t kCustomization = 0x10, kCareer = 0x11, kNoSlot = 0xFF;
@@ -149,6 +150,8 @@ uint32_t ModCarTexture(X86Context& ctx, uint32_t hash) {
     return 0;
 }
 
+uint32_t ListedHandle(uint32_t table, uint32_t handle);
+
 // game thread, at each present
 void ModCarsFrame(X86Context& ctx) {
     const std::vector<Car>& cars = Cars();
@@ -183,10 +186,22 @@ void ModCarsFrame(X86Context& ctx) {
         if (handle == current) found = true;
         if (career_car == kEmpty && *static_cast<uint8_t*>(kernel::HostPtr(entry + kCareer)) != kNoSlot) career_car = handle;
     }
-    if (!found && current != kEmpty && career_car != kEmpty) {
-        LOGR("mods: the career's car %u is gone with its add-on; the career goes on in %u", current, career_car);
-        kernel::W32(profile + kCurrentCar, career_car);
+    // no other career car: the list's (0x12F4E0 and the race's start 0x213380 read the record with no check)
+    if (!found && current != kEmpty) {
+        uint32_t pick = career_car != kEmpty ? career_car : ListedHandle(table, current);
+        if (pick != current) {
+            LOGR("mods: the career's car %u is gone with its add-on; the career goes on in %u", current, pick);
+            kernel::W32(profile + kCurrentCar, pick);
+        }
     }
+    // the race modes' settings (24 byte records at +0x1C, 0x126130; 0xB of them) keep their car's handle at +0x10
+    if (mem::IsCommitted(db + kRaceModes + kRaceModeCount * kRaceModeSize - 1))
+        for (uint32_t i = 0; i < kRaceModeCount; i++) {
+            uint32_t slot = db + kRaceModes + i * kRaceModeSize + 0x10, handle = kernel::R32(slot);
+            if (handle == kEmpty) continue;
+            uint32_t listed = ListedHandle(table, handle);
+            if (listed != handle) kernel::W32(slot, listed);
+        }
     static uint32_t frames = 0;
     if (++frames % 30) return;
     for (const Car& car : cars) {
@@ -269,6 +284,7 @@ X86_FUNC(sub_00140BE0) {
     kernel::W32(ctx.esp + 4, game::ListedHandle(ctx.ecx, kernel::R32(ctx.esp + 4)));
     __imp__sub_00140BE0(ctx, base);
 }
+
 
 // An AI racer's vehicle made (thiscall, the pvehicle key; class 3, DRIVER_RACER, 0x172970), from the race's list of
 // opponents' cars (0x199024): an add-on's key is given a stock car's
