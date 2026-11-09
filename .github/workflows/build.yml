@@ -84,9 +84,10 @@ jobs:
         shell: bash
         run: |
           # a tag names the version; a run by hand is the commit's
+          # versionCode is the run plus 100: a local 1.4.0 build was code 11, past the runs
           if [ "$RELEASE" = "true" ]; then name="${GITHUB_REF_NAME#v}"; else name="dev-${GITHUB_SHA::7}"; fi
           echo "name=$name" >> "$GITHUB_OUTPUT"
-          echo "GRADLE_ARGS=-PversionCode=${{ github.run_number }} -PversionName=$name" >> "$GITHUB_ENV"
+          echo "GRADLE_ARGS=-PversionCode=$((${{ github.run_number }} + 100)) -PversionName=$name" >> "$GITHUB_ENV"
 
       - name: Build
         shell: cmd
