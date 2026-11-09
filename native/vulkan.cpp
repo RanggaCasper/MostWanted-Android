@@ -1183,10 +1183,18 @@ public:
     static constexpr uint32_t kCapSlots = 3;
     Image cap_down_;
     Buffer cap_rb_[kCapSlots];
-    uint64_t cap_fence_[kCapSlots] = {}, cap_n_[kCapSlots] = {};
+    uint64_t cap_fence_[kCapSlots] = {};
+    int64_t cap_us_[kCapSlots] = {};  // each frame's time in the video (video::Stamp)
     uint32_t cap_w_ = 0, cap_h_ = 0, cap_slot_ = 0, cap_deliver_ = 0, cap_pending_ = 0;
-    uint64_t cap_next_n_ = 0;
     bool cap_active_ = false;
+    // a photo (video::TakePhoto): the presented frame at the target's height, widened to the aspect asked, read back
+    // once its submit is done, at a later present
+    void CapturePhoto(Target* t);
+    Image photo_down_;
+    Buffer photo_rb_;
+    uint64_t photo_fence_ = 0;
+    uint32_t photo_w_ = 0, photo_h_ = 0;
+    bool photo_pending_ = false;
     void CaptureVideo(Target* t);
     void DeliverVideo(bool wait);
     void Flush() override { if (!gpu_failed_) Submit(true, false); }
@@ -4403,7 +4411,7 @@ void VulkanBackend::DeliverVideo(bool wait) {
     while (cap_pending_) {
         uint32_t slot = cap_deliver_;
         if (cap_fence_[slot] > Completed() && (!wait || !WaitValue(cap_fence_[slot]))) return;
-        video::Frame(cap_rb_[slot].mem.map, cap_w_, cap_h_, cap_n_[slot]);
+        video::Frame(cap_rb_[slot].mem.map, cap_w_, cap_h_, cap_us_[slot]);
         cap_deliver_ = (slot + 1) % kCapSlots;
         cap_pending_--;
     }
@@ -4429,7 +4437,6 @@ void VulkanBackend::CaptureVideo(Target* t) {
         for (Buffer& b : cap_rb_) Retire(b);
         cap_w_ = w, cap_h_ = h;
         cap_slot_ = cap_deliver_ = cap_pending_ = 0;
-        cap_next_n_ = 0;
         cap_active_ = true;
     }
     DeliverVideo(false);
@@ -4438,6 +4445,8 @@ void VulkanBackend::CaptureVideo(Target* t) {
         if (!WaitValue(cap_fence_[cap_deliver_])) return;
         DeliverVideo(false);
     }
+    const int64_t us = video::Stamp();  // live, a frame ahead of the video's rate is not read back
+    if (us < 0) return;
     uint32_t slot = cap_slot_;
     if (!cap_rb_[slot].buf && !CreateBuffer(cap_rb_[slot], VkDeviceSize(w) * h * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true))
         return;
@@ -4451,9 +4460,41 @@ void VulkanBackend::CaptureVideo(Target* t) {
     mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
     vkCmdPipelineBarrier(Cb(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
     cap_fence_[slot] = value_ + 1;  // the next Submit carries it
-    cap_n_[slot] = cap_next_n_++;
+    cap_us_[slot] = us;
     cap_slot_ = (slot + 1) % kCapSlots;
     cap_pending_++;
+}
+
+void VulkanBackend::CapturePhoto(Target* t) {
+    if (photo_pending_) {
+        if (photo_fence_ > Completed()) return;  // a later present's
+        video::Photo(photo_rb_.mem.map, photo_w_, photo_h_);
+        photo_pending_ = false;
+        Retire(photo_rb_);
+        Retire(photo_down_);
+        return;
+    }
+    float aspect = 0;
+    if (!video::PhotoWanted(aspect) || !t || t->depth) return;
+    // the target's own height (the game's frame at its render scale), as wide as the picture shows
+    const uint32_t h = t->h;
+    const uint32_t w = std::max(2u, uint32_t(std::lround(float(h) * std::max(aspect, 0.5f) / 2.0f)) * 2);
+    if (!CreateBuffer(photo_rb_, VkDeviceSize(w) * h * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true)) return;
+    uint32_t taps = std::max(1u, uint32_t(std::ceil(float(t->w) / float(w) - 1e-3f)));
+    if (!Shrink(t->img, w, h, photo_down_, taps)) {
+        Retire(photo_rb_);
+        return;
+    }
+    EndRender();
+    VkBufferImageCopy c{0, 0, 0, {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {0, 0, 0}, {w, h, 1}};
+    vkCmdCopyImageToBuffer(Cb(), photo_down_.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, photo_rb_.buf, 1, &c);
+    VkMemoryBarrier mb{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    mb.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    mb.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    vkCmdPipelineBarrier(Cb(), VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &mb, 0, nullptr, 0, nullptr);
+    photo_fence_ = value_ + 1;  // the next Submit carries it
+    photo_w_ = w, photo_h_ = h;
+    photo_pending_ = true;
 }
 
 void VulkanBackend::Present(const Surface& front) {
@@ -4465,6 +4506,7 @@ void VulkanBackend::Present(const Surface& front) {
     }
     if (t && LatchCpuWrite(*t)) UploadTarget(*t, front);
     if (cap_active_ || video::Busy()) CaptureVideo(t);
+    if (photo_pending_ || video::PhotoBusy()) CapturePhoto(t);
     if (ramp_dirty_) UploadGammaRamp();
     if (gpu_failed_) return;
     uint32_t index = 0;

@@ -668,13 +668,8 @@ void Step(int item, int dir) {
 // the video's size: 720 high, as wide as the picture shows, both multiples of 16 as encoders want them
 void StartSaving() {
     if (g_saving || video::Busy()) return;
-    uint32_t h = kVideoHeights[std::clamp(int(g_resolution), 0, int(std::size(kVideoHeights)) - 1)];
-    float aspect = std::max(Aspect(), 0.5f);
-    uint32_t w = uint32_t(std::lround(float(h) * aspect / 16.0f)) * 16;
-    if (w > 1920) {  // wider than encoders take: 1920 wide, the height brought down with it
-        w = 1920;
-        h = std::max(16u, uint32_t(std::lround(1920.0f / aspect / 16.0f)) * 16);
-    }
+    uint32_t w, h;
+    video::SizeFor(kVideoHeights[std::clamp(int(g_resolution), 0, int(std::size(kVideoHeights)) - 1)], Aspect(), w, h);
     if (!video::Start(w, h, kVideoFps, SoundBetween(g_begin, g_end), kAudioRate)) {
         g_notice = 2;
         g_notice_until = Now() + 4;
@@ -1138,7 +1133,7 @@ void DrawSaveNotice() {
         float len = g_shown_len;
         int pct = len > 0 ? int(std::clamp(g_shown_t.load() / len, 0.0f, 1.0f) * 100) : 0;
         text = app::Ui("SAVING VIDEO") + " " + std::to_string(pct) + "%   " + app::Ui("B / TAP TO STOP");
-    } else if (video::Busy() || g_save_waiting) {
+    } else if (g_save_waiting) {  // its own: cinematic mode's video shows its own notice
         text = app::Ui("SAVING VIDEO") + "...";
     } else if (g_notice && Now() < g_notice_until) {
         text = app::Ui(g_notice == 1 ? "VIDEO SAVED TO MOVIES/MOSTWANTED" : "THE VIDEO COULD NOT BE SAVED");

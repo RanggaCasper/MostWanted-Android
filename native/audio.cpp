@@ -9,6 +9,7 @@
 #include "audio/output.h"
 #include "common/music.h"
 #include "common/replay_audio.h"
+#include "common/video.h"
 #include "core/log.h"
 
 namespace audio {
@@ -50,6 +51,7 @@ void SDLCALL Feed(void* user, SDL_AudioStream* stream, int additional, int) {
         game::ReplayAudio(p.mix.data(), kBlock);  // recorded for a replay, or a replay's sound in its place
         music::Mix(p.mix.data(), kBlock);
         Fold(p.mix.data(), kBlock, g_mode == kOutputMono, p.out);
+        video::Audio(p.out.data() + p.out.size() - kBlock * 2, kBlock, kRate);  // a cinematic video's sound, as heard
     }
     if (!want) return;
     SDL_PutAudioStreamData(stream, p.out.data(), int(want * sizeof(float)));

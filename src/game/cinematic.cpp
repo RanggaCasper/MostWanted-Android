@@ -24,6 +24,11 @@
 // there), and the rear view mirror (0x0D4860, view 3 drawn at 186..456 x 24..88 of the front end's 640x480) are
 // skipped while it is on. The pad is the camera's (game_info.cpp's filter): the game sees
 // none, and none until it is let go after leaving, so the B that leaves is not the menu's too.
+//
+// TAKE PHOTO (Y) and SAVE VIDEO (X) keep the picture as it is presented, before the menu and the touch controls are
+// drawn over it (native/vulkan.cpp, src/common/video.h): a PNG at the renderer's own size in Pictures/MostWanted, and
+// the keyframes' path played from its start into an MP4 at RESOLUTION's size in Movies/MostWanted, 1/30 s of the path
+// a frame (times PATH SPEED) at any frame rate, silent, till its last key, B, Start, X or leaving.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -41,6 +46,7 @@
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
 #include "common/translations.h"
+#include "common/video.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "cpu/x86_ops.h"
@@ -124,13 +130,32 @@ bool g_first_pad = true;
 std::chrono::steady_clock::time_point g_last;
 // the menu: Start shows and hides it, open as it enters. D-pad up and down pick an item, A does it, B closes it
 // (hidden, B leaves); a touch or a click on an item does it too (the UI thread's, taken by the next frame)
-enum Item { kLive, kAddKey, kUndoKey, kClearKeys, kPlayPath, kPathSpeed, kResetCamera, kHideMenu, kExit, kItems };
+enum Item {
+    kLive, kAddKey, kUndoKey, kClearKeys, kPlayPath, kPathSpeed, kPhoto, kRecord, kResolution, kResetCamera, kHideMenu,
+    kExit, kItems
+};
 std::atomic<bool> g_menu{true};
 std::atomic<int> g_sel{kAddKey};
 std::atomic<int> g_tap{-1};  // an item touched or clicked; with kTapLeft or kTapRight, the speed's arrows
 constexpr int kTapLeft = 0x100, kTapRight = 0x200;
 std::atomic<float> g_menu_rect[4] = {0, 0, 0, 0};  // its place on the screen, for the touch controls to leave it
 constexpr float kSpeeds[] = {0.25f, 0.5f, 0.75f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f};
+
+// the photos and the video, and what became of the last (a notice at the top of the picture a few seconds)
+constexpr uint32_t kVideoFps = 30;
+constexpr uint32_t kVideoHeights[] = {480, 720, 1080};  // RESOLUTION's; as wide as the picture shows, 1920 at most
+const char* const kVideoNames[] = {"480P", "720P", "1080P"};
+std::atomic<int> g_resolution{1};
+// SAVE VIDEO: the keyframes' path played from its start into a video, 1/30 s of the path a frame at any frame rate,
+// the file closed once its last key is shown
+std::atomic<bool> g_recording{false};
+bool g_save_done = false;                  // the last key's frame drawn: the file closed at the next frame
+std::atomic<float> g_save_part{0};         // how far along the path, 0 to 1, for the notice
+std::atomic<bool> g_rec_waiting{false};    // the encoder still writing the file
+std::atomic<bool> g_photo_waiting{false};  // asked for, not written yet
+enum Notice { kNoNotice, kVideoSaved, kVideoFailed, kPhotoSaved, kPhotoFailed };
+std::atomic<int> g_notice{kNoNotice};
+std::atomic<double> g_notice_until{0};
 
 // LIVE: the race runs under the camera. The game's own events pause and resume it: EUnPause (0x19E7B0, 8 bytes,
 // processed as 0x19E7C0: pops the pause package, the sim resumes) as the pause menu's Resume posts it (0x10F2AC), and
@@ -313,6 +338,46 @@ Key PathAt(float t) {
     return k;
 }
 
+void Notify(int notice) {
+    g_notice = notice;
+    g_notice_until = Now() + 4;
+}
+
+// the path into a video from its first key: frame n is the path n / 30 s in (times PATH SPEED), however fast the
+// frames come. Silent: paused, the game makes no sound of the race
+void StartRecording() {
+    if (g_recording || video::Busy() || g_keys.size() < 2) return;
+    uint32_t w, h;
+    video::SizeFor(kVideoHeights[std::clamp(int(g_resolution), 0, int(std::size(kVideoHeights)) - 1)], Aspect(), w, h);
+    if (!video::Start(w, h, kVideoFps)) {
+        Notify(kVideoFailed);
+        return;
+    }
+    PreparePath();
+    g_play_t = 0;
+    g_playing = true;
+    g_menu = false;
+    g_save_done = false;
+    g_save_part = 0;
+    g_recording = true;
+    g_rec_waiting = true;
+}
+
+// done or stopped early: the camera stays where the path left it, the menu back
+void StopRecording() {
+    if (!g_recording) return;
+    g_recording = false;
+    g_playing = false;
+    g_menu = true;
+    video::Stop();  // the renderer hands what it has read back, then the file is closed
+}
+
+void TakePhoto() {
+    if (video::PhotoBusy()) return;
+    video::TakePhoto(Aspect());
+    g_photo_waiting = true;
+}
+
 void SetFly(const Key& k) {
     g_fly.pos = k.pos;
     g_fly.yaw = k.yaw;
@@ -359,6 +424,7 @@ void Enter() {
 // why: logged when it was not the player's leaving (the race ended or the camera changed under it)
 void Leave(const char* why) {
     if (!g_active) return;
+    StopRecording();
     if (g_camera && mem::IsCommitted(g_camera)) std::memcpy(kernel::HostPtr(g_camera), g_saved, kCamSaved);
     kernel::W32(kPrecullMode, g_saved_precull);
     g_active = false;
@@ -404,6 +470,18 @@ bool Act(X86Context& ctx, int item, int dir) {
             g_play_speed = kSpeeds[i];
             break;
         }
+        case kPhoto: TakePhoto(); break;
+        case kRecord:
+            if (g_recording) StopRecording();
+            else if (video::Available()) StartRecording();
+            break;
+        case kResolution: {  // not while recording: the video keeps the size it began with
+            if (g_recording) break;
+            constexpr int n = int(std::size(kVideoHeights));
+            int r = g_resolution + (dir ? dir : 1);
+            g_resolution = dir ? std::clamp(r, 0, n - 1) : (r % n + n) % n;
+            break;
+        }
         case kResetCamera: SetFly(KeyOf(g_start)); break;
         case kHideMenu: g_menu = false; break;
         case kExit: return true;
@@ -444,6 +522,9 @@ void Step(X86Context& ctx) {
         else g_menu = !g_menu.load();
     }
     int tap = g_tap.exchange(-1);
+    // Y a photo, X the video started or stopped: with the menu open or hidden, and while the path plays
+    if (Pressed(3)) Act(ctx, kPhoto, 0);
+    if (Pressed(2)) Act(ctx, kRecord, 0);
     if (g_playing) {
         if (Pressed(1)) g_playing = false;  // B stops it where it is
     } else if (g_menu) {
@@ -469,11 +550,24 @@ void Step(X86Context& ctx) {
         Leave(nullptr);
         return;
     }
+    // the path stopped while it saved (B, Start), or its last key shown the frame before: the video ends there
+    if (g_recording && (!g_playing || g_save_done)) StopRecording();
     // live, the range follows the car
     if (g_live) {
         if (Vec car; CarMiddle(car)) g_origin = car;
     }
 
+    if (g_playing && g_recording) {
+        // a fixed step whatever the frame rate, at the speed it began with: this frame is the video's next
+        float step = 1.0f / kVideoFps;
+        float total = PathSeconds();
+        SetFly(PathAt(g_play_t));
+        WriteCamera(ctx, g_camera, g_fly, step);
+        g_save_part = total > 0 ? std::clamp(g_play_t / total, 0.0f, 1.0f) : 1.0f;
+        if (g_play_t >= total) g_save_done = true;
+        g_play_t += step * g_play_speed;
+        return;
+    }
     if (g_playing) {
         // RT faster, LT slower, a quarter to four times
         g_play_speed = std::clamp(
@@ -549,6 +643,60 @@ void CinematicRequest(bool from_pause_menu) {
 bool CinematicActive() { return g_active; }
 bool CinematicClean() { return g_active && (!g_menu || g_playing); }
 
+namespace {
+
+// at the top of the picture: how far SAVE VIDEO is along the path, then whether the file or the photo was saved
+void DrawNotice() {
+    if (g_rec_waiting && !g_recording && !video::Busy()) {
+        g_rec_waiting = false;
+        std::string r = video::Result();
+        Notify(r.empty() || r == "!" ? kVideoFailed : kVideoSaved);
+    }
+    if (g_photo_waiting && !video::PhotoBusy()) {
+        g_photo_waiting = false;
+        std::string r = video::PhotoResult();
+        Notify(r.empty() || r == "!" ? kPhotoFailed : kPhotoSaved);
+    }
+    std::string text;
+    const bool rec = g_recording && video::Busy();
+    if (rec) {
+        int pct = int(g_save_part.load() * 100);
+        text = app::Ui("SAVING VIDEO") + " " + std::to_string(pct) + "%   " + app::Ui("B TO STOP");
+    } else if (g_rec_waiting) {
+        text = app::Ui("SAVING VIDEO") + "...";
+    } else if (g_notice != kNoNotice && Now() < g_notice_until) {
+        switch (g_notice.load()) {
+            case kVideoSaved: text = app::Ui("VIDEO SAVED TO MOVIES/MOSTWANTED"); break;
+            case kVideoFailed: text = app::Ui("THE VIDEO COULD NOT BE SAVED"); break;
+#ifdef __ANDROID__
+            case kPhotoSaved: text = app::Ui("PHOTO SAVED TO PICTURES/MOSTWANTED"); break;
+#else
+            case kPhotoSaved: text = app::Ui("PHOTO SAVED TO SCREENSHOTS"); break;
+#endif
+            default: text = app::Ui("THE PHOTO COULD NOT BE SAVED"); break;
+        }
+    } else {
+        return;
+    }
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImFont* font = ImGui::GetFont();
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    const float u = screen.y / 480.0f, px = 13 * u;
+    const float w = font->CalcTextSizeA(px, FLT_MAX, 0, text.c_str()).x + (rec ? 38 : 28) * u, h = 26 * u;
+    const ImVec2 p0((screen.x - w) / 2, 40 * u), p1(p0.x + w, p0.y + h);
+    dl->AddRectFilled(p0, p1, IM_COL32(22, 16, 8, 210), h / 2);
+    dl->AddRect(p0, p1, IM_COL32(236, 156, 40, 255), h / 2, 0, 1.6f * u);
+    float tx = p0.x + 14 * u;
+    if (rec) {
+        if (std::fmod(ImGui::GetTime(), 1.0) < 0.6)
+            dl->AddCircleFilled(ImVec2(p0.x + 15 * u, (p0.y + p1.y) / 2), 4.5f * u, IM_COL32(225, 40, 30, 255), 16);
+        tx = p0.x + 25 * u;
+    }
+    dl->AddText(font, px, ImVec2(tx, p0.y + (h - px) / 2), IM_COL32(255, 238, 208, 255), text.c_str());
+}
+
+}  // namespace
+
 // the pad filter, before the game sees it: true while the pad is the camera's (or still held after leaving)
 bool CinematicPad(int port, const input::Pad& pad) {
     if (port != 0) return g_active || g_drain;
@@ -573,6 +721,7 @@ bool CinematicPad(int port, const input::Pad& pad) {
 // the menu at the left, in the pause menu's colours, and under it the camera's own controls; nothing while hidden or
 // while the path plays, so the picture is the game's alone. Its place is kept for the touch controls
 void DrawCinematicHud() {
+    if (!app::MenuOpen()) DrawNotice();
     const bool shown = g_active && g_menu && !g_playing && !app::MenuOpen();
     if (!shown) {
         g_menu_rect[2] = 0;
@@ -597,6 +746,7 @@ void DrawCinematicHud() {
     // the items: what each says, what it shows at the right, whether it can be done now
     const int keys = g_key_count, sel = g_sel;
     const bool live = g_live;
+    const bool recording = g_recording;
     char speed[16];
     std::snprintf(speed, sizeof speed, "%gx", double(g_play_speed.load()));
     struct Row {
@@ -611,6 +761,9 @@ void DrawCinematicHud() {
         {"CLEAR KEYFRAMES", std::to_string(keys), keys > 0},
         {"PLAY PATH", "", keys >= 2},
         {"PATH SPEED", speed, true},
+        {"TAKE PHOTO", "", !g_photo_waiting},
+        {"SAVE VIDEO", "", keys >= 2 && video::Available() && !g_rec_waiting},
+        {"RESOLUTION", kVideoNames[std::clamp(int(g_resolution), 0, int(std::size(kVideoNames)) - 1)], !recording},
         {"RESET CAMERA", "", true},
         {"HIDE MENU", "", true},
         {"EXIT", "", true},
@@ -661,8 +814,9 @@ void DrawCinematicHud() {
         if (over && mouse && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0)) g_sel = i;
         if (over && ImGui::IsMouseClicked(0)) {
             int tap = i;
-            if (i == kPathSpeed && m.x < b.x - pad - arrow - width(label_px, r.value) - arrow / 2) tap |= kTapLeft;
-            else if (i == kPathSpeed && m.x > b.x - pad - arrow) tap |= kTapRight;
+            const bool arrows = i == kPathSpeed || i == kResolution;
+            if (arrows && m.x < b.x - pad - arrow - width(label_px, r.value) - arrow / 2) tap |= kTapLeft;
+            else if (arrows && m.x > b.x - pad - arrow) tap |= kTapRight;
             g_tap = tap;
         }
         const bool picked = i == sel;
@@ -678,7 +832,7 @@ void DrawCinematicHud() {
         dl->AddText(font, label_px, ImVec2(a.x + pad + 4 * u, cy - label_px / 2), ink_label, label.c_str());
         if (!r.value.empty()) {
             float vx = b.x - pad - width(label_px, r.value);
-            if (i == kPathSpeed) {  // its arrows either side
+            if (i == kPathSpeed || i == kResolution) {  // its arrows either side
                 vx -= arrow;
                 float lx = vx - arrow, rx = b.x - pad - arrow * 0.6f;
                 dl->AddTriangleFilled(ImVec2(lx + arrow * 0.7f, cy - 4 * u), ImVec2(lx + arrow * 0.7f, cy + 4 * u),
@@ -686,7 +840,7 @@ void DrawCinematicHud() {
                 dl->AddTriangleFilled(ImVec2(rx, cy - 4 * u), ImVec2(rx, cy + 4 * u), ImVec2(rx + arrow * 0.7f, cy),
                                       amber);
             }
-            ImU32 vcol = i == kLive && live ? ink : picked ? cream : amber;
+            ImU32 vcol = i == kLive && live ? ink : i == kRecord ? IM_COL32(240, 70, 55, 255) : picked ? cream : amber;
             if (i == kLive) {  // ON lit as the game's toggles, OFF hollow
                 float vw = width(label_px, r.value) + 10 * u;
                 ImVec2 v0(b.x - pad - vw, cy - 8 * u), v1(b.x - pad, cy + 8 * u);
@@ -724,6 +878,7 @@ void DrawCinematicHud() {
         {{{{Glyph::Pill, "LT"}, {Glyph::Pill, "RT"}}, "ZOOM"}, {{{Glyph::Pill, "LB"}, {Glyph::Pill, "RB"}}, "HEIGHT"}},
         {{{{Glyph::Dpad, "LR"}}, "ROLL"}, {{{Glyph::Pill, "R3"}}, "LEVEL"}, {{{Glyph::Pill, "L3"}}, "FAST"}},
         {{{{Glyph::Dpad, "UD"}, {Glyph::Pill, "BACK"}}, "NEXT ITEM"}, {{{Glyph::Face, "A"}}, "SELECT"}},
+        {{{{Glyph::Face, "Y"}}, "PHOTO"}, {{{Glyph::Face, "X"}}, "RECORD"}},
         {{{{Glyph::Pill, "START"}}, "HIDE"}, {{{Glyph::Face, "B"}}, "CLOSE"}},
     };
     const float gh = 13 * u, hint_px = 11 * u, key_px = 8.5f * u, gap = 4 * u, item_gap = 11 * u, line_h = 17 * u;
