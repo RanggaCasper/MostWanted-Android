@@ -4,6 +4,10 @@
 #include <SDL3/SDL_main.h>
 #include <android/log.h>
 #include <sys/system_properties.h>
+#include <dlfcn.h>
+#include <signal.h>
+#include <sys/syscall.h>
+#include <ucontext.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -38,6 +42,8 @@
 #include "image_symbols.h"
 #include "kernel/kernel.h"
 
+uint32_t D3dPresents();  // src/d3d/d3d8.cpp
+
 namespace {
 
 SDL_Window* g_window = nullptr;
@@ -65,6 +71,79 @@ void LogToLogcat() {
             line.append(buf, size_t(n));
             for (size_t nl; (nl = line.find('\n')) != std::string::npos; line.erase(0, nl + 1))
                 __android_log_write(ANDROID_LOG_INFO, "BLACK", line.substr(0, nl).c_str());
+        }
+    }).detach();
+}
+
+// A hang report: no frame for 10 s while in front, and every guest thread's registers and return addresses go to the log;
+// a running one is also stopped by a signal a few times for its host pc and frame chain, offsets in libmain.so (its
+// unstripped copy under app/build/intermediates/cxx names them: sub_XXXXXXXX is the guest function). Once a stall
+void OnHangSample(int, siginfo_t*, void* uc_) {
+    auto* uc = static_cast<ucontext_t*>(uc_);
+    Dl_info self{};
+    dladdr(reinterpret_cast<void*>(&OnHangSample), &self);
+    auto base = reinterpret_cast<uintptr_t>(self.dli_fbase);
+    auto off = [base](uintptr_t a) { return a >= base ? a - base : 0; };
+    uintptr_t pc = uc->uc_mcontext.pc, lr = uc->uc_mcontext.regs[30], fp = uc->uc_mcontext.regs[29];
+    uintptr_t sp = uc->uc_mcontext.sp;
+    std::string chain;
+    char part[24];
+    // the frame records on this thread's own stack (64 MB, kernel::Spawn), each above the last
+    for (int i = 0; i < 16 && fp > sp && fp < sp + (64u << 20) && !(fp & 7); i++) {
+        auto* rec = reinterpret_cast<uintptr_t*>(fp);
+        std::snprintf(part, sizeof part, " %zX", size_t(off(rec[1])));
+        chain += part;
+        if (rec[0] <= fp) break;
+        fp = rec[0];
+    }
+    kernel::Thread* t = kernel::Current();
+    LOGE("hang: guest thread %X at pc %zX lr %zX, frames%s", t ? t->id : 0, size_t(off(pc)), size_t(off(lr)),
+         chain.c_str());
+}
+
+void WatchForHangs(uint32_t (*presents)()) {
+    struct sigaction sa{};
+    sa.sa_sigaction = OnHangSample;
+    sa.sa_flags = SA_SIGINFO | SA_RESTART;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGUSR2, &sa, nullptr);
+    std::thread([presents] {
+        uint32_t last = presents();
+        int still = 0;
+        bool told = false;
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            uint32_t now = presents();
+            if (now != last || !host::Foreground()) {
+                last = now, still = 0, told = false;
+                continue;
+            }
+            if (++still < 10 || told) continue;
+            told = true;
+            LOGE("hang: no frame for %d s after %u", still, now);
+            for (const kernel::ThreadRef& t : kernel::Threads()) {
+                if (!t->ctx) continue;
+                LOGE("hang: guest thread %X", t->id);
+                kernel::LogGuestStack(*t->ctx, 96);
+            }
+            // the running ones, by their state in /proc
+            for (const auto& task : std::filesystem::directory_iterator("/proc/self/task")) {
+                std::ifstream stat(task.path() / "stat");
+                std::string line;
+                std::getline(stat, line);
+                size_t close = line.rfind(')');
+                if (close == std::string::npos || close + 2 >= line.size() || line[close + 2] != 'R') continue;
+                std::ifstream comm(task.path() / "comm");
+                std::string name;
+                std::getline(comm, name);
+                if (name.rfind("guest", 0) != 0) continue;
+                pid_t tid = pid_t(std::stoi(task.path().filename().string()));
+                for (int i = 0; i < 6; i++) {
+                    syscall(SYS_tgkill, getpid(), tid, SIGUSR2);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+                }
+            }
+            logx::Flush();
         }
     }).detach();
 }
@@ -466,6 +545,7 @@ int main(int, char**) {
                                  g_window);
         return 1;
     }
+    WatchForHangs(D3dPresents);
 
     for (;;) {
         SDL_Event e;

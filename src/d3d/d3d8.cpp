@@ -821,6 +821,9 @@ void LogPerf(uint64_t gpu_wait_ns, uint64_t pace_ns) {
 }
 }  // namespace
 
+// the frames presented so far, for the host's hang report (native/main.cpp)
+uint32_t D3dPresents() { return g_presents.load(std::memory_order_relaxed); }
+
 HLE_STDCALL(D3DDevice_Swap, 1) {
     game::WaitWhileUnfocused();
     app::SplashFirstFrame();
