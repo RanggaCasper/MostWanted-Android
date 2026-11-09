@@ -56,11 +56,11 @@
     <string name="mods_update">Perbarui</string>
     <string name="mods_later">Nanti</string>
     <string name="mods_version">Versi</string>
-    <string name="mods_credit_cars">Mobil karya para pembuatnya, dari NFSAddons</string>
+    <string name="mods_credit_cars">Mobil karya para pembuatnya, dari NFSAddons dan NFSMods</string>
     <string name="mods_open_site_sub">Buka situsnya di browser</string>
     <string name="mods_from_file_sub">File ZIP, 7z, atau RAR yang sudah diunduh</string>
     <string name="mods_steps">Cara pakai</string>
-    <string name="mods_how">Unduh mobil Most Wanted di NFSAddons\nPasang di sini dari file, atau buka file itu dengan Mods Loader\nKetuk Main: mobilnya sudah ada di game</string>
+    <string name="mods_how">Unduh mobil Most Wanted di NFSAddons atau NFSMods\nPasang di sini dari file, atau buka file itu dengan Mods Loader\nKetuk Main: mobilnya sudah ada di game</string>
     <string name="mods_open_site">Cari mobil di NFSAddons</string>
     <string name="mods_reading">Membaca file…</string>
     <string name="mods_no_browser">HP ini tidak punya browser untuk membuka situsnya.</string>
@@ -68,6 +68,13 @@
     <string name="mods_none">Belum ada mod terpasang</string>
     <string name="mods_manage">Mod terpasang</string>
     <string name="mods_remove">Hapus</string>
+    <string name="mods_open_site2">Cari mod di NFSMods</string>
+    <string name="mods_select">Pilih</string>
+    <string name="mods_select_all">Semua</string>
+    <string name="mods_selected">%1$d dipilih</string>
+    <string name="mods_remove_all">Hapus semua</string>
+    <string name="mods_remove_selected">Hapus (%1$d)</string>
+    <string name="mods_remove_many_text">Hapus %1$d mod? Save game tetap ada; mobil yang dihapus keluar dari daftar mobilnya, dan tekstur asli game kembali untuk paket yang dihapus.</string>
     <string name="mods_from_file">Pasang dari file</string>
     <string name="mods_play">Main</string>
     <string name="mods_install">Pasang</string>

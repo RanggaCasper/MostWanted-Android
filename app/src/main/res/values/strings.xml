@@ -61,11 +61,11 @@
     <string name="mods_update">Update</string>
     <string name="mods_later">Later</string>
     <string name="mods_version">Version</string>
-    <string name="mods_credit_cars">Cars by their authors, from NFSAddons</string>
+    <string name="mods_credit_cars">Cars by their authors, from NFSAddons and NFSMods</string>
     <string name="mods_open_site_sub">Opens the site in your browser</string>
     <string name="mods_from_file_sub">A ZIP, 7z or RAR you downloaded</string>
     <string name="mods_steps">How it works</string>
-    <string name="mods_how">Download a Most Wanted car on NFSAddons\nInstall it here from the file, or open the file with Mods Loader\nTap Play: the car is in the game</string>
+    <string name="mods_how">Download a Most Wanted car on NFSAddons or NFSMods\nInstall it here from the file, or open the file with Mods Loader\nTap Play: the car is in the game</string>
     <string name="mods_open_site">Get cars on NFSAddons</string>
     <string name="mods_reading">Reading the file…</string>
     <string name="mods_no_browser">This phone has no browser to open the site with.</string>
@@ -73,6 +73,13 @@
     <string name="mods_none">No mods installed yet</string>
     <string name="mods_manage">Installed mods</string>
     <string name="mods_remove">Remove</string>
+    <string name="mods_open_site2">Get mods on NFSMods</string>
+    <string name="mods_select">Select</string>
+    <string name="mods_select_all">All</string>
+    <string name="mods_selected">%1$d selected</string>
+    <string name="mods_remove_all">Remove all</string>
+    <string name="mods_remove_selected">Remove (%1$d)</string>
+    <string name="mods_remove_many_text">Remove %1$d mods? The game\'s saves stay; removed cars leave their car lists, and the game\'s own textures come back for removed packs.</string>
     <string name="mods_from_file">Install from file</string>
     <string name="mods_play">Play</string>
     <string name="mods_install">Install</string>

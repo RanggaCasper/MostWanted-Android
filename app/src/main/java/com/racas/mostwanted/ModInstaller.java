@@ -215,10 +215,17 @@ final class ModInstaller {
     }
 
     static void uninstall(Context context, String car, Consumer<String> log) throws Exception {
-        File dir = new File(new File(modsDir(), GARAGE), car);
-        File[] files = dir.listFiles();
-        if (files != null) for (File f : files) f.delete();
-        dir.delete();
+        uninstall(context, java.util.Collections.singletonList(car), log);
+    }
+
+    // several at once: the game's files are made again once, from what is left
+    static void uninstall(Context context, List<String> cars, Consumer<String> log) throws Exception {
+        for (String car : cars) {
+            File dir = new File(new File(modsDir(), GARAGE), car);
+            File[] files = dir.listFiles();
+            if (files != null) for (File f : files) f.delete();
+            dir.delete();
+        }
         File game = findGame(context);
         if (game == null) throw new IOException("no game");
         rebuild(context, game, log);
