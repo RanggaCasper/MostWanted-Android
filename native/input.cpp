@@ -245,11 +245,29 @@ void ApplyBinds(SDL_Gamepad* pad, Pad& p,
 void AddPad(SDL_JoystickID id) {
     for (SDL_Gamepad* pad : g_pads)
         if (pad && SDL_GetGamepadID(pad) == id) return;
+    SDL_Gamepad* candidate = SDL_OpenGamepad(id);
+    if (!candidate) {
+        LOGI("input: failed to open SDL gamepad id=%u: %s", id, SDL_GetError());
+        return;
+    }
+    SDL_Joystick* joystick = SDL_GetGamepadJoystick(candidate);
+    int axes = joystick ? SDL_GetNumJoystickAxes(joystick) : 0;
+    if (axes < 2) {
+        const char* name = SDL_GetGamepadName(candidate);
+        LOGI("input: ignoring SDL gamepad id=%u name=%s axes=%d", id,
+                            name ? name : "", axes);
+        SDL_CloseGamepad(candidate);
+        return;
+    }
     SDL_Gamepad** slot = std::find(std::begin(g_pads), std::end(g_pads), nullptr);
-    if (slot == std::end(g_pads)) return;
-    *slot = SDL_OpenGamepad(id);
-    const char* name = *slot ? SDL_GetGamepadName(*slot) : SDL_GetError();
-    LOGI("input: controller %d %s: %s", int(slot - g_pads) + 1, *slot ? "plugged in" : "failed to open", name ? name : "");
+    if (slot == std::end(g_pads)) {
+        LOGI("input: no free controller slot for id=%u axes=%d", id, axes);
+        SDL_CloseGamepad(candidate);
+        return;
+    }
+    *slot = candidate;
+    const char* name = SDL_GetGamepadName(candidate);
+    LOGI("input: controller %d plugged in: %s axes=%d", int(slot - g_pads) + 1, name ? name : "", axes);
 }
 
 void RemovePad(SDL_JoystickID id) {
