@@ -39,13 +39,17 @@
 
 | | |
 | --- | --- |
-| 🖥️ **Graphics** | Render resolution 20–200%, aspect ratio from 1:1 to full screen, FXAA / SSAA 2x, sharpen, vivid, scanline and CRT filters, unlocked frame rate, V-Sync, FPS counter, anisotropic filtering |
-| 👆 **Touch Controls** | A full Xbox pad on screen, layout presets, a layout editor to move and resize each control, PS2 button icons |
+| 🖥️ **Graphics** | Render resolution 20–200%, aspect ratio from 1:1 to full screen, FXAA / SSAA 2x, sharpen, vivid, scanline and CRT filters, unlocked frame rate, V-Sync, FPS counter, anisotropic filtering, car and road reflections, shadows, rain, motion blur, night mode, shader preloading |
+| 🚗 **Mods Loader** | PC add-on cars from nfsaddons.com installed on the phone (zip, 7z, rar, packs of many cars), and NextGenGraphics texture packs at the size you pick |
+| 🎬 **Cinematic Mode** | A free camera from the pause menu, keyframe paths, photos, and the path saved as a video |
+| 📼 **Replay** | The race played again with its sound, with chase, TV, free, bumper and auto cameras, and saved as a video |
+| 🎵 **My Music** | Your own songs from `MostWanted/music` in place of EA Trax, silent in movies, cutscenes and loading |
+| 👆 **Touch Controls** | A full Xbox pad on screen, arrows, wheel or tilt steering, a layout editor for the controls and the HUD, tap and swipe in the game's menus |
 | 🎮 **Other Input** | SDL3 controllers with rumble, keyboard with rebindable controls |
 | 🕹️ **Cheats** | Infinite nitrous and speedbreaker, max cash, no police, no traffic, unlock all, auto shift in drag races |
-| ⚙️ **General** | Language (with Indonesian), audio output, update check, pause while in the background, crash reports in the MostWanted folder |
+| ⚙️ **General** | Settings in the game's own OPTIONS menu, language (with Indonesian), skip movies, save backups, audio output, update check, pause while in the background, crash and freeze reports in the MostWanted folder |
 
-The settings panel opens from the gear at the top of the screen. Android's back button is the controller's Start.
+The settings are in the game's OPTIONS menu, under ANDROID OPTIONS. The gear at the top of the screen opens the cheats. Android's back button is the controller's Start.
 
 ## 📱 Requirements
 
