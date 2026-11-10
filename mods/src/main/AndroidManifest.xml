@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <application android:label="@string/mods_title" android:icon="@mipmap/ic_mods" android:roundIcon="@mipmap/ic_mods" android:allowBackup="false" android:hardwareAccelerated="true" android:largeHeap="true" android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity android:name=".ModsActivity" android:label="@string/mods_title" android:exported="true" android:theme="@android:style/Theme.Material.NoActionBar" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+            <intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><data android:scheme="content"/><data android:mimeType="application/zip"/><data android:mimeType="application/x-zip-compressed"/><data android:mimeType="application/x-7z-compressed"/><data android:mimeType="application/x-rar-compressed"/><data android:mimeType="application/vnd.rar"/><data android:mimeType="application/rar"/></intent-filter>
+            <intent-filter><action android:name="android.intent.action.SEND"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="application/zip"/><data android:mimeType="application/x-zip-compressed"/><data android:mimeType="application/x-7z-compressed"/><data android:mimeType="application/x-rar-compressed"/><data android:mimeType="application/vnd.rar"/><data android:mimeType="application/rar"/></intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -71,11 +71,12 @@ rem ---------------------------------------------------------------- Android
 echo [5/5] APK: the game code for arm64, 30 to 90 minutes the first time
 if not exist local.properties echo sdk.dir=%ANDROID_HOME:\=/%> local.properties
 rem GRADLE_ARGS: more for Gradle, as the release workflow's -PversionCode and -PversionName
-call gradlew.bat assembleRelease %GRADLE_ARGS% || goto :fail
+call gradlew.bat :app:assembleRelease :mods:assembleRelease %GRADLE_ARGS% || goto :fail
 
 echo.
 echo   %GAME_TITLE% for Android built.
 echo   app\build\outputs\apk\release\app-release.apk
+echo   mods\build\outputs\apk\release\mods-release.apk
 echo.
 echo   Install it with: adb install -r app\build\outputs\apk\release\app-release.apk
 echo   Then copy the game files to the phone, see README.md.

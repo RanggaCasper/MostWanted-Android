@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Most Wanted</string>
+    <string name="port_credit">Port by Rangga Casper</string>
+    <string name="donate">Donate</string>
+    <string name="donate_url" translatable="false">https://sociabuzz.com/racas/tribe</string>
+    <string name="credits">Credits</string>
+    <string name="github" translatable="false">GitHub</string>
+    <string name="youtube" translatable="false">YouTube</string>
+    <string name="github_url" translatable="false">https://github.com/RanggaCasper</string>
+    <string name="youtube_url" translatable="false">https://youtube.com/c/@RanggaCasper</string>
+    <string name="close">Close</string>
+
+    <!-- updates -->
+    <string name="checking_updates">Checking for updates…</string>
+    <string name="update_check_failed">Update check failed</string>
+    <string name="update_unreachable">Couldn\'t reach GitHub. Check your internet connection and try again.</string>
+    <string name="no_update">No update</string>
+    <string name="latest_version">You have the latest version (%1$s).</string>
+    <string name="update_available">Update available</string>
+    <string name="update_is_available">%1$s is available</string>
+    <string name="update_installed">(you have %1$s)</string>
+    <string name="update_whats_new">What\'s new:</string>
+    <string name="update_install_over">Install it over this one: your settings and saves stay.</string>
+    <string name="download">Download</string>
+    <string name="skip_version">Skip this version</string>
+    <string name="later">Later</string>
+
+    <!-- where the game goes -->
+    <string name="storage_access">Storage access</string>
+    <string name="storage_text">Most Wanted reads the game from the MostWanted folder on your phone\'s storage and keeps its saves, logs and crash reports there. The game can\'t start without this access:\n\n%1$s\n\n%2$s</string>
+    <string name="storage_all_files">On the next screen turn on \"Allow access to manage all files\" for Most Wanted, then come back.</string>
+    <string name="storage_permission">Allow Most Wanted to access your storage on the next screen.</string>
+    <string name="allow_access">Allow access</string>
+    <string name="game_files">Game files</string>
+    <string name="game_files_text">Copy the game into the MostWanted folder on your phone\'s storage:\n\n%1$s\n\nor into a MostWanted folder at the top of your SD card.\n\nIts disc image (.iso), or default.xbe with its folders. The game starts as soon as they are there.\n\nOr import the disc image from your Downloads, a cloud drive or a USB stick.</string>
+
+    <!-- importing a disc image -->
+    <string name="import_game">Import game</string>
+    <string name="no_file_picker">This phone has no file picker to choose the disc image with.</string>
+    <string name="choose_iso">Choose the game\'s disc image, a file ending in .iso.</string>
+    <string name="not_enough_space">Not enough space</string>
+    <string name="space_needed">The disc image needs %1$.1f GB free, there are %2$.1f GB.</string>
+    <string name="import_starting">Starting…</string>
+    <string name="importing">Importing %1$s</string>
+    <string name="import_progress">%1$.2f of %2$.2f GB</string>
+    <string name="not_xbox_image">%1$s is not an Xbox disc image.</string>
+    <string name="copy_stopped">The copy stopped early.</string>
+    <string name="copy_failed">The copy failed: %1$s</string>
+    <string name="not_in_place">The image could not be put in place.</string>
+    <string name="game_imported">Game imported</string>
+    <string name="game_imported_text">%1$s is in place. The game starts in a moment.</string>
+    <string name="import_failed">Import failed</string>
+
+    <!-- add-on cars -->
+    <string name="mods_title">Most Wanted Mods Loader</string>
+    <string name="mods_language">Language</string>
+    <string name="mods_subtitle">For Need for Speed: Most Wanted</string>
+    <string name="mods_update_title">Update installed cars</string>
+    <string name="mods_update_text">Installed cars were made by an older converter: their paint has no reflection. Make them again now? It takes a few seconds; nothing needs downloading.</string>
+    <string name="mods_update">Update</string>
+    <string name="mods_later">Later</string>
+    <string name="mods_version">Version</string>
+    <string name="mods_credit_cars">Cars by their authors, from NFSAddons and NFSMods</string>
+    <string name="mods_open_site_sub">Opens the site in your browser</string>
+    <string name="mods_from_file_sub">A ZIP, 7z or RAR you downloaded</string>
+    <string name="mods_steps">How it works</string>
+    <string name="mods_how">Download a Most Wanted car on NFSAddons or NFSMods\nInstall it here from the file, or open the file with Mods Loader\nTap Play: the car is in the game</string>
+    <string name="mods_open_site">Get cars on NFSAddons</string>
+    <string name="mods_reading">Reading the file…</string>
+    <string name="mods_no_browser">This phone has no browser to open the site with.</string>
+    <string name="mods_no_picker">This phone has no file picker to choose the car\'s file with.</string>
+    <string name="mods_none">No mods installed yet</string>
+    <string name="mods_manage">Installed mods</string>
+    <string name="mods_remove">Remove</string>
+    <string name="mods_open_site2">Get mods on NFSMods</string>
+    <string name="mods_select">Select</string>
+    <string name="mods_select_all">All</string>
+    <string name="mods_selected">%1$d selected</string>
+    <string name="mods_remove_all">Remove all</string>
+    <string name="mods_remove_selected">Remove (%1$d)</string>
+    <string name="mods_remove_many_text">Remove %1$d mods? The game\'s saves stay; removed cars leave their car lists, and the game\'s own textures come back for removed packs.</string>
+    <string name="mods_from_file">Install from file</string>
+    <string name="mods_play">Play</string>
+    <string name="mods_install">Install</string>
+    <string name="mods_confirm">Install %1$s in the game? It is made into the Xbox game\'s format here on the phone.</string>
+    <string name="mods_game_closes">The game is open and will be closed. Progress since its last save is lost.</string>
+    <string name="mods_converting">Making it into the game\'s format…</string>
+    <string name="mods_done">Car installed</string>
+    <string name="mods_done_addon">%1$s is in the game.</string>
+    <string name="mods_done_pack">%1$d cars are in the game.</string>
+    <string name="mods_pack_failed">These would not go in: %1$s</string>
+    <string name="mods_failed">Not installed</string>
+    <string name="mods_only_mw_cars">Only cars for Need for Speed: Most Wanted can be installed.</string>
+    <string name="mods_need_access">Open the game once and allow its storage access: this needs it too.</string>
+    <string name="mods_no_game">The game\'s files were not found. Put them in %1$s first: the car is built from them.</string>
+    <string name="mods_no_car">This archive has no car or texture pack in it the converter knows (no folder with a GEOMETRY.BIN and TEXTURES.BIN, no TexturePackInfo.json with its images).</string>
+    <string name="mods_name_long">The car\'s folder name, %1$s, is too long for the game.</string>
+    <string name="mods_unsupported">This car is in a format the converter doesn\'t handle yet: %1$s</string>
+    <string name="mods_bad_archive">This archive can\'t be opened here (%1$s). ZIP, 7z and RAR can.</string>
+    <string name="mods_too_big">This car is too large to convert on this phone.</string>
+    <string name="mods_error">It failed: %1$s</string>
+    <string name="mods_res_title">Texture resolution</string>
+    <string name="mods_res_small">smallest, for older phones</string>
+    <string name="mods_res_recommended">recommended</string>
+    <string name="mods_res_large">sharper, about twice the storage</string>
+    <string name="mods_res_huge">sharpest, very large, a lot of GPU memory</string>
+    <string name="mods_next">Next</string>
+    <string name="mods_texture_pack">Texture pack · %1$d textures</string>
+    <string name="mods_reading_files">Reading the archive… %1$s files</string>
+    <string name="mods_remove_pack_text">Remove %1$s? The game\'s own textures come back.</string>
+    <string name="mods_remove_text">Remove %1$s? The game\'s saves stay; it leaves their car lists.</string>
+</resources>

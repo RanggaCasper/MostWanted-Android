@@ -1,0 +1,41 @@
+plugins { id "com.android.application" }
+
+android {
+    // Keep the Java namespace so the copied MODS sources use the same R class;
+    // applicationId is deliberately different so Android installs this as APK 2.
+    namespace "com.racas.mostwanted"
+    compileSdk 34
+    defaultConfig {
+        applicationId "com.racas.mostwanted.mods"
+        minSdk 29
+        targetSdk 34
+        versionCode project.hasProperty("versionCode") ? project.versionCode.toInteger() : 1
+        versionName project.hasProperty("versionName") ? project.versionName : "1.0"
+    }
+    def keystore = System.getenv("BLACK_KEYSTORE")
+    signingConfigs {
+        if (keystore) {
+            release {
+                storeFile file(keystore)
+                storePassword System.getenv("BLACK_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("BLACK_KEY_ALIAS")
+                keyPassword System.getenv("BLACK_KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+        }
+        debug { }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    packaging { resources { excludes += ["META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/DEPENDENCIES", "META-INF/versions/**"] } }
+}
+
+dependencies {
+    implementation "org.apache.commons:commons-compress:1.27.1"
+    implementation "org.tukaani:xz:1.10"
+    implementation("me.zhanghai.android.libarchive:library:1.1.6") { exclude group: "androidx.annotation" }
+}
