@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Indonesian (Android's "in" covers id too) -->
+<resources>
+    <string name="port_credit">Port oleh Rangga Casper</string>
+    <string name="donate">Donasi</string>
+    <string name="credits">Kredit</string>
+    <string name="close">Tutup</string>
+
+    <!-- updates -->
+    <string name="checking_updates">Memeriksa pembaruan…</string>
+    <string name="update_check_failed">Gagal memeriksa pembaruan</string>
+    <string name="update_unreachable">Tidak dapat menghubungi GitHub. Periksa koneksi internet lalu coba lagi.</string>
+    <string name="no_update">Tidak ada pembaruan</string>
+    <string name="latest_version">Kamu sudah memakai versi terbaru (%1$s).</string>
+    <string name="update_available">Pembaruan tersedia</string>
+    <string name="update_is_available">%1$s sudah tersedia</string>
+    <string name="update_installed">(versi kamu %1$s)</string>
+    <string name="update_whats_new">Yang baru:</string>
+    <string name="update_install_over">Pasang di atas versi ini: pengaturan dan save kamu tetap ada.</string>
+    <string name="download">Unduh</string>
+    <string name="skip_version">Lewati versi ini</string>
+    <string name="later">Nanti</string>
+
+    <!-- where the game goes -->
+    <string name="storage_access">Akses penyimpanan</string>
+    <string name="storage_text">Most Wanted membaca game dari folder MostWanted di penyimpanan HP kamu dan menyimpan save, log, serta laporan crash di sana. Game tidak bisa dimulai tanpa akses ini:\n\n%1$s\n\n%2$s</string>
+    <string name="storage_all_files">Di layar berikutnya, aktifkan \"Izinkan akses untuk mengelola semua file\" untuk Most Wanted, lalu kembali ke sini.</string>
+    <string name="storage_permission">Di layar berikutnya, izinkan Most Wanted mengakses penyimpanan kamu.</string>
+    <string name="allow_access">Izinkan akses</string>
+    <string name="game_files">File game</string>
+    <string name="game_files_text">Salin game ke folder MostWanted di penyimpanan HP kamu:\n\n%1$s\n\natau ke folder MostWanted di bagian paling atas kartu SD.\n\nBisa disc image-nya (.iso), atau default.xbe beserta folder-foldernya. Game langsung dimulai begitu file-nya ada di sana.\n\nAtau impor disc image dari folder Download, cloud drive, atau flashdisk USB.</string>
+
+    <!-- importing a disc image -->
+    <string name="import_game">Impor game</string>
+    <string name="no_file_picker">HP ini tidak punya pemilih file untuk memilih disc image.</string>
+    <string name="choose_iso">Pilih disc image game, yaitu file yang berakhiran .iso.</string>
+    <string name="not_enough_space">Ruang tidak cukup</string>
+    <string name="space_needed">Disc image butuh ruang kosong %1$.1f GB, yang tersedia %2$.1f GB.</string>
+    <string name="import_starting">Memulai…</string>
+    <string name="importing">Mengimpor %1$s</string>
+    <string name="import_progress">%1$.2f dari %2$.2f GB</string>
+    <string name="not_xbox_image">%1$s bukan disc image Xbox.</string>
+    <string name="copy_stopped">Penyalinan berhenti sebelum selesai.</string>
+    <string name="copy_failed">Penyalinan gagal: %1$s</string>
+    <string name="not_in_place">Image tidak bisa dipindahkan ke tempatnya.</string>
+    <string name="game_imported">Game berhasil diimpor</string>
+    <string name="game_imported_text">%1$s sudah siap. Game akan dimulai sebentar lagi.</string>
+    <string name="import_failed">Impor gagal</string>
+
+    <!-- add-on cars -->
+    <string name="mods_title">Most Wanted Mods Loader</string>
+    <string name="mods_language">Bahasa</string>
+    <string name="mods_subtitle">Untuk Need for Speed: Most Wanted</string>
+    <string name="mods_update_title">Perbarui mobil terpasang</string>
+    <string name="mods_update_text">Mobil terpasang dibuat dengan converter lama: catnya tidak punya pantulan. Buat ulang sekarang? Hanya beberapa detik, tidak perlu mengunduh apa pun.</string>
+    <string name="mods_update">Perbarui</string>
+    <string name="mods_later">Nanti</string>
+    <string name="mods_version">Versi</string>
+    <string name="mods_credit_cars">Mobil karya para pembuatnya, dari NFSAddons dan NFSMods</string>
+    <string name="mods_open_site_sub">Buka situsnya di browser</string>
+    <string name="mods_from_file_sub">File ZIP, 7z, atau RAR yang sudah diunduh</string>
+    <string name="mods_steps">Cara pakai</string>
+    <string name="mods_how">Unduh mobil Most Wanted di NFSAddons atau NFSMods\nPasang di sini dari file, atau buka file itu dengan Mods Loader\nKetuk Main: mobilnya sudah ada di game</string>
+    <string name="mods_open_site">Cari mobil di NFSAddons</string>
+    <string name="mods_reading">Membaca file…</string>
+    <string name="mods_no_browser">HP ini tidak punya browser untuk membuka situsnya.</string>
+    <string name="mods_no_picker">HP ini tidak punya pemilih file untuk memilih file mobil.</string>
+    <string name="mods_none">Belum ada mod terpasang</string>
+    <string name="mods_manage">Mod terpasang</string>
+    <string name="mods_remove">Hapus</string>
+    <string name="mods_open_site2">Cari mod di NFSMods</string>
+    <string name="mods_select">Pilih</string>
+    <string name="mods_select_all">Semua</string>
+    <string name="mods_selected">%1$d dipilih</string>
+    <string name="mods_remove_all">Hapus semua</string>
+    <string name="mods_remove_selected">Hapus (%1$d)</string>
+    <string name="mods_remove_many_text">Hapus %1$d mod? Save game tetap ada; mobil yang dihapus keluar dari daftar mobilnya, dan tekstur asli game kembali untuk paket yang dihapus.</string>
+    <string name="mods_from_file">Pasang dari file</string>
+    <string name="mods_play">Main</string>
+    <string name="mods_install">Pasang</string>
+    <string name="mods_confirm">Pasang %1$s ke game? File ini akan diubah ke format game Xbox langsung di HP.</string>
+    <string name="mods_game_closes">Game sedang terbuka dan akan ditutup. Progres sejak save terakhir akan hilang.</string>
+    <string name="mods_converting">Mengubah ke format game…</string>
+    <string name="mods_done">Mobil terpasang</string>
+    <string name="mods_done_addon">%1$s sudah masuk ke game.</string>
+    <string name="mods_done_pack">%1$d mobil sudah masuk ke game.</string>
+    <string name="mods_pack_failed">Yang tidak bisa dipasang: %1$s</string>
+    <string name="mods_failed">Tidak terpasang</string>
+    <string name="mods_only_mw_cars">Hanya mobil untuk Need for Speed: Most Wanted yang bisa dipasang.</string>
+    <string name="mods_need_access">Buka game sekali dan izinkan akses penyimpanannya, karena fitur ini juga memerlukannya.</string>
+    <string name="mods_no_game">File game tidak ditemukan. Letakkan dulu di %1$s, karena mobil dibuat dari file itu.</string>
+    <string name="mods_no_car">Arsip ini tidak berisi mobil atau paket tekstur yang dikenali converter (tidak ada folder berisi GEOMETRY.BIN dan TEXTURES.BIN, tidak ada TexturePackInfo.json beserta gambarnya).</string>
+    <string name="mods_name_long">Nama folder mobil, %1$s, terlalu panjang untuk game.</string>
+    <string name="mods_unsupported">Format mobil ini belum didukung converter: %1$s</string>
+    <string name="mods_bad_archive">Arsip ini tidak bisa dibuka di sini (%1$s). Yang bisa: ZIP, 7z, dan RAR.</string>
+    <string name="mods_too_big">Mobil ini terlalu besar untuk dikonversi di HP ini.</string>
+    <string name="mods_error">Gagal: %1$s</string>
+    <string name="mods_res_title">Resolusi tekstur</string>
+    <string name="mods_res_small">paling kecil, untuk HP lama</string>
+    <string name="mods_res_recommended">disarankan</string>
+    <string name="mods_res_large">lebih tajam, kira-kira 2x ukuran</string>
+    <string name="mods_res_huge">paling tajam, sangat besar, butuh banyak memori GPU</string>
+    <string name="mods_next">Lanjut</string>
+    <string name="mods_texture_pack">Paket tekstur · %1$d tekstur</string>
+    <string name="mods_reading_files">Membaca arsip… %1$s file</string>
+    <string name="mods_remove_pack_text">Hapus %1$s? Tekstur asli game akan kembali.</string>
+    <string name="mods_remove_text">Hapus %1$s? Save game tetap ada, tetapi mobil ini keluar dari daftar mobilnya.</string>
+</resources>

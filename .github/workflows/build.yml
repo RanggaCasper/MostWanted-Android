@@ -93,14 +93,18 @@ jobs:
         shell: cmd
         run: call build.bat
 
-      - name: Name the APK
+      - name: Name the APKs
         shell: bash
-        run: mv app/build/outputs/apk/release/app-release.apk "MostWanted-${{ steps.version.outputs.name }}.apk"
+        run: |
+          mv app/build/outputs/apk/release/app-release.apk "MostWanted-${{ steps.version.outputs.name }}.apk"
+          mv mods/build/outputs/apk/release/mods-release.apk "MostWanted-MODS-${{ steps.version.outputs.name }}.apk"
 
       - uses: actions/upload-artifact@v5
         with:
           name: MostWanted-${{ steps.version.outputs.name }}
-          path: MostWanted-${{ steps.version.outputs.name }}.apk
+          path: |
+            MostWanted-${{ steps.version.outputs.name }}.apk
+            MostWanted-MODS-${{ steps.version.outputs.name }}.apk
           if-no-files-found: error
 
       - name: Release notes
@@ -128,5 +132,7 @@ jobs:
         with:
           name: Most Wanted for Android ${{ github.ref_name }}
           body_path: ${{ runner.temp }}/release-notes.md
-          files: MostWanted-${{ steps.version.outputs.name }}.apk
+          files: |
+            MostWanted-${{ steps.version.outputs.name }}.apk
+            MostWanted-MODS-${{ steps.version.outputs.name }}.apk
           make_latest: true

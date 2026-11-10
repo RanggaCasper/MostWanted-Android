@@ -137,3 +137,8 @@ Game ini juga bisa dibangun dan dijalankan secara native di Linux (x86-64) dari 
 Proyek ini berlisensi [GNU General Public License v3.0](LICENSE). SDK di `sdk/` tetap memakai lisensi MIT-nya sendiri (`sdk/LICENSE`), begitu juga library di atas dengan lisensinya masing-masing.
 
 *Need for Speed* adalah merek dagang Electronic Arts Inc. Proyek ini tidak berafiliasi dengan maupun didukung oleh mereka.
+
+
+## MODS Loader terpisah (fork)
+
+Build Android menghasilkan dua APK: `MostWanted-<versi>.apk` dan `MostWanted-MODS-<versi>.apk`. Pasang keduanya. MODS Loader menggunakan package `com.racas.mostwanted.mods` dan mengelola folder bersama `MostWanted` pada penyimpanan bersama. Tombol Play membuka aplikasi game utama jika terpasang.
