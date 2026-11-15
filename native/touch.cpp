@@ -1976,7 +1976,11 @@ void LoadArt() {
     SDL_Surface* loaded[std::size(g_art)] = {};
     for (size_t i = 0; i < std::size(g_art); i++) {
         std::string file = std::string("touch/") + g_art[i].name + ".png";  // the APK's assets
+#if SDL_VERSION_ATLEAST(3, 4, 0)
         SDL_Surface* s = SDL_LoadPNG(file.c_str());
+#else
+        SDL_Surface* s = nullptr;  // SDL_LoadPNG is SDL 3.4+; the touch art is only in the APK
+#endif
         if (s) {
             loaded[i] = SDL_ConvertSurface(s, SDL_PIXELFORMAT_RGBA32);
             SDL_DestroySurface(s);
