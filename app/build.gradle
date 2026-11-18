@@ -28,7 +28,7 @@ android {
     defaultConfig {
         applicationId = "com.racas.mostwanted"
         minSdk = 29
-        targetSdk = 34
+        targetSdk = 37
         // -PversionCode=<n> -PversionName=<name>: the release workflow sets them from the tag
         versionCode = project.hasProperty("versionCode") ? project.versionCode.toInteger() : 1
         versionName = project.hasProperty("versionName") ? project.versionName : "1.0"
