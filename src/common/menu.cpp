@@ -1189,8 +1189,8 @@ void DrawUi(double fps) {
     io.KeyRepeatRate = 0.1f;  // held arrows step ten times a second, ImGui's twenty is too fast for settings
     // scale the font with the output height: a phone's dense screen reads 13 px text at 540 rows to the height, the
     // game's font (native/ui.cpp, taller) brought to that size
-    float base = io.Fonts->Fonts.empty() ? 13.0f : io.Fonts->Fonts[0]->FontSize;
-    io.FontGlobalScale = std::max(1.0f, io.DisplaySize.y / 540.0f) * 13.0f / base;
+    float base = io.Fonts->Fonts.empty() ? 13.0f : io.Fonts->Fonts[0]->LegacySize;
+    ImGui::GetStyle().FontScaleMain = std::max(1.0f, io.DisplaySize.y / 540.0f) * 13.0f / base;
     if (MenuOpen()) {
         PollCapture();
         PollPadCapture();

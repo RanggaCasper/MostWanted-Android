@@ -13,7 +13,7 @@ set "PF86=%ProgramFiles(x86)%"
 set "VSWHERE=%PF86%\Microsoft Visual Studio\Installer\vswhere.exe"
 set "TOOLS=%CD%\out\build\android-tools"
 if not defined ANDROID_HOME set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
-set "NDK=%ANDROID_HOME%\ndk\28.2.13676358"
+set "NDK=%ANDROID_HOME%\ndk\30.0.16248370"
 set "SDKCMAKE=%ANDROID_HOME%\cmake\3.31.6\bin"
 
 rem ---------------------------------------------------------------- tools
@@ -85,7 +85,7 @@ exit /b 0
 
 :nosdk
 echo       The Android SDK was not found complete. Install Android Studio, then in its SDK Manager:
-echo       Android SDK Platform 34, NDK 28.2.13676358 and CMake 3.31.6.
+echo       Android SDK Platform 37.2, NDK 30.0.16248370 and CMake 3.31.6.
 goto :fail
 
 :nogame

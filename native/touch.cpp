@@ -759,7 +759,6 @@ struct Art {
     float body;  // the body's height over the image's width, the badge left out
     int rect = -1;  // the atlas' custom rect, -1 while not loaded
     float aspect = 1;  // the image's height over its width
-    ImVec2 uv0, uv1;
 };
 Art g_art[] = {{"a", 1.0f},     {"b", 1.0f},     {"x", 1.0f},          {"y", 1.0f},
                {"lt", 0.698f},  {"rt", 1.2345f}, {"black", 1.0f},      {"start", 1.0f},
@@ -789,9 +788,17 @@ void DrawArt(ImDrawList* dl, const Art& a, ImVec2 c, float hh, ImU32 tint, float
     ImVec2 corner[4] = {{-hw, top}, {hw, top}, {hw, hh}, {-hw, hh}};
     float s = std::sin(angle), k = std::cos(angle);
     for (ImVec2& p : corner) p = ImVec2(c.x + p.x * k - p.y * s, c.y + p.x * s + p.y * k);
+    ImFontAtlas* atlas = ImGui::GetIO().Fonts;
+    ImFontAtlasRect rect;
+    if (!atlas->GetCustomRect(a.rect, &rect)) return;
+
+    dl->PushTexture(atlas->TexRef);
     dl->PrimReserve(6, 4);
-    dl->PrimQuadUV(corner[0], corner[1], corner[2], corner[3], a.uv0, ImVec2(a.uv1.x, a.uv0.y), a.uv1,
-                   ImVec2(a.uv0.x, a.uv1.y), tint);
+    dl->PrimQuadUV(
+        corner[0], corner[1], corner[2], corner[3],
+        rect.uv0, ImVec2(rect.uv1.x, rect.uv0.y),
+        rect.uv1, ImVec2(rect.uv0.x, rect.uv1.y), tint);
+    dl->PopTexture();
 }
 
 // a control's place: its layout's, or the FEng menus' own for a face button, a trigger and the dpad
@@ -1973,8 +1980,11 @@ bool TiltSteering() { return g_steering == Steering::Tilt; }
 
 void LoadArt() {
     ImFontAtlas* atlas = ImGui::GetIO().Fonts;
+    atlas->TexMinWidth = 2048;
+    atlas->TexPixelsUseColors = true;
     SDL_Surface* loaded[std::size(g_art)] = {};
     for (size_t i = 0; i < std::size(g_art); i++) {
+        g_art[i].rect = -1;
         std::string file = std::string("touch/") + g_art[i].name + ".png";  // the APK's assets
         SDL_Surface* s = SDL_LoadPNG(file.c_str());
         if (s) {
@@ -1985,23 +1995,25 @@ void LoadArt() {
             LOGW("touch: no art %s: %s", file.c_str(), SDL_GetError());
             continue;
         }
-        g_art[i].rect = atlas->AddCustomRectRegular(loaded[i]->w, loaded[i]->h);
+        g_art[i].rect = atlas->AddCustomRect(loaded[i]->w, loaded[i]->h);
         g_art[i].aspect = float(loaded[i]->h) / float(loaded[i]->w);
     }
-    // built now, with the art: the backend uploads the atlas as it is. Its width is otherwise the glyphs' alone, too
-    // narrow for the brake pedal
-    atlas->TexDesiredWidth = 2048;
     unsigned char* pixels;
     int width, height;
     atlas->GetTexDataAsRGBA32(&pixels, &width, &height);
     for (size_t i = 0; i < std::size(g_art); i++) {
         SDL_Surface* s = loaded[i];
         if (!s) continue;
-        const ImFontAtlasCustomRect* r = atlas->GetCustomRectByIndex(g_art[i].rect);
-        for (int y = 0; y < s->h; y++)
-            std::memcpy(pixels + (size_t(r->Y + y) * width + r->X) * 4, static_cast<uint8_t*>(s->pixels) + size_t(y) * s->pitch,
-                        size_t(s->w) * 4);
-        atlas->CalcCustomRectUV(r, &g_art[i].uv0, &g_art[i].uv1);
+        ImFontAtlasRect rect;
+        if (atlas->GetCustomRect(g_art[i].rect, &rect)) {
+            for (int y = 0; y < s->h; y++)
+                std::memcpy(
+                    pixels + (size_t(rect.y + y) * width + rect.x) * 4,
+                    static_cast<uint8_t*>(s->pixels) + size_t(y) * s->pitch,
+                    size_t(s->w) * 4);
+        } else {
+            g_art[i].rect = -1;
+        }
         SDL_DestroySurface(s);
     }
 }

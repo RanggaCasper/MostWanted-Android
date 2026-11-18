@@ -2027,16 +2027,20 @@ bool VulkanBackend::CreateFixedImages() {
 }
 
 bool VulkanBackend::InitUi() {
-    VkDescriptorPoolSize ps{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 16};
+    VkDescriptorPoolSize ps[] = {
+        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 128},
+        {VK_DESCRIPTOR_TYPE_SAMPLER, 16},
+    };
     VkDescriptorPoolCreateInfo pi{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     pi.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pi.maxSets = 16;
-    pi.poolSizeCount = 1;
-    pi.pPoolSizes = &ps;
+    pi.maxSets = 128;
+    pi.poolSizeCount = 2;
+    pi.pPoolSizes = ps;
     if (vkCreateDescriptorPool(dev_, &pi, nullptr, &ui_pool_) != VK_SUCCESS) return false;
     std::lock_guard lock(app::UiLock());
     if (!ImGui::GetCurrentContext()) return false;
     ImGui_ImplVulkan_InitInfo ii{};
+    ii.ApiVersion = api_;
     ii.Instance = instance_;
     ii.PhysicalDevice = pd_;
     ii.Device = dev_;
@@ -2045,13 +2049,15 @@ bool VulkanBackend::InitUi() {
     ii.DescriptorPool = ui_pool_;
     ii.MinImageCount = 2;
     ii.ImageCount = uint32_t(std::max<size_t>(swap_images_.size(), 2));
-    ii.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    ii.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
     ii.UseDynamicRendering = dynamic_;
-    ii.PipelineRenderingCreateInfo = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
-    ii.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    ii.PipelineRenderingCreateInfo.pColorAttachmentFormats = &swap_fmt_;
-    if (!dynamic_) ii.RenderPass = Pass(swap_fmt_, VK_FORMAT_UNDEFINED);
-    ImGui::GetIO().BackendRendererName = "vulkan";
+    ii.PipelineInfoMain.PipelineRenderingCreateInfo = {
+        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
+    ii.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    ii.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &swap_fmt_;
+    if (!dynamic_)
+        ii.PipelineInfoMain.RenderPass = Pass(
+            swap_fmt_, VK_FORMAT_UNDEFINED);
     return ImGui_ImplVulkan_Init(&ii);
 }
 
@@ -4306,7 +4312,7 @@ void VulkanBackend::DrawFrame(Target* t, uint32_t index) {
 void VulkanBackend::RenderUi() {
     if (!ui_) return;
     std::lock_guard lock(app::UiLock());
-    if (ui::ApplyGameFont()) ImGui_ImplVulkan_CreateFontsTexture();  // waits for the queue before it swaps the texture
+    ui::ApplyGameFont();
     ImGui_ImplVulkan_NewFrame();
     ui::NewFrame(float(swap_extent_.width), float(swap_extent_.height));
     ImGui::NewFrame();

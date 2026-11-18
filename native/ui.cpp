@@ -193,11 +193,11 @@ bool ApplyGameFont() {
     atlas->GetTexDataAsRGBA32(&pixels, &width, &height);
     for (size_t i = 0; i < font.glyphs.size(); i++) {
         const game::FontGlyph& g = font.glyphs[i];
-        const ImFontAtlasCustomRect* r = atlas->GetCustomRectByIndex(rects[i]);
-        if (!r) continue;
+        ImFontAtlasRect rect;
+        if (!atlas->GetCustomRect(rects[i], &rect)) continue;
         for (int y = 0; y < g.h; y++)
             for (int x = 0; x < g.w; x++) {
-                unsigned char* p = pixels + (size_t(r->Y + y) * width + r->X + x) * 4;
+                unsigned char* p = pixels + (size_t(rect.y + y) * width + rect.x + x) * 4;
                 p[0] = p[1] = p[2] = 255;
                 p[3] = g.alpha[size_t(y) * g.w + x];
             }

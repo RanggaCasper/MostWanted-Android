@@ -4,7 +4,7 @@ plugins {
 
 // SDL3 at the version the SDK's Windows build uses: its Java side goes into the APK, its C side into libSDL3.so
 def sdlDir = file("../third_party/SDL")
-def sdlTag = "release-3.4.16"
+def sdlTag = "release-3.4.20"
 tasks.register("fetchSDL") {
     onlyIf { !new File(sdlDir, "CMakeLists.txt").exists() }
     doLast {
@@ -17,17 +17,21 @@ tasks.register("fetchSDL") {
 preBuild.dependsOn "fetchSDL"
 
 android {
-    namespace "com.racas.mostwanted"
-    compileSdk 34
-    ndkVersion "28.2.13676358"
+    namespace = "com.racas.mostwanted"
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
+    }
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
-        applicationId "com.racas.mostwanted"
-        minSdk 29
-        targetSdk 34
+        applicationId = "com.racas.mostwanted"
+        minSdk = 29
+        targetSdk = 34
         // -PversionCode=<n> -PversionName=<name>: the release workflow sets them from the tag
-        versionCode project.hasProperty("versionCode") ? project.versionCode.toInteger() : 1
-        versionName project.hasProperty("versionName") ? project.versionName : "1.0"
+        versionCode = project.hasProperty("versionCode") ? project.versionCode.toInteger() : 1
+        versionName = project.hasProperty("versionName") ? project.versionName : "1.0"
         ndk {
             abiFilters "arm64-v8a"
         }
@@ -47,21 +51,21 @@ android {
     signingConfigs {
         if (keystore) {
             release {
-                storeFile file(keystore)
-                storePassword System.getenv("BLACK_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("BLACK_KEY_ALIAS")
-                keyPassword System.getenv("BLACK_KEY_PASSWORD")
+                storeFile = file(keystore)
+                storePassword = System.getenv("BLACK_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("BLACK_KEY_ALIAS")
+                keyPassword = System.getenv("BLACK_KEY_PASSWORD")
             }
         }
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
             // without the release key a debug signature, so the release APK installs as it is
-            signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+            signingConfig = keystore ? signingConfigs.release : signingConfigs.debug
             // -Pdebuggable: run-as and simpleperf on a device that is not rooted
-            debuggable project.hasProperty("debuggable")
+            debuggable = project.hasProperty("debuggable")
         }
         debug {
             // the recompiled code is far too slow unoptimized
@@ -75,8 +79,8 @@ android {
 
     externalNativeBuild {
         cmake {
-            path "../CMakeLists.txt"
-            version "3.31.6"
+            path = "../CMakeLists.txt"
+            version = "3.31.6"
         }
     }
 
@@ -87,11 +91,14 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
         resources {
             excludes += ["META-INF/LICENSE*", "META-INF/NOTICE*", "META-INF/DEPENDENCIES", "META-INF/versions/**"]
         }
@@ -101,10 +108,10 @@ android {
 // the archives add-on cars come in: ModArchive
 dependencies {
     // 7z's LZMA; some archives' streams need the relaxed end its decoder turns on (1.21's called them corrupt)
-    implementation "org.apache.commons:commons-compress:1.27.1"
-    implementation "org.tukaani:xz:1.10"
-    // RAR of any version; 1.1.7 wants compileSdk 37. Its AndroidX annotations mean nothing at run time, and this app has no AndroidX
-    implementation("me.zhanghai.android.libarchive:library:1.1.6") {
+    implementation "org.apache.commons:commons-compress:1.28.0"
+    implementation "org.tukaani:xz:1.12"
+    // RAR archive support; AndroidX annotations are excluded.
+    implementation("me.zhanghai.android.libarchive:library:1.1.7") {
         exclude group: "androidx.annotation"
     }
 }
