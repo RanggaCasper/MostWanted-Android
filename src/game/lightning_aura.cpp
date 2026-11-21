@@ -1,6 +1,7 @@
 #include "lightning_aura.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace game::lightning_aura {
@@ -10,6 +11,7 @@ constexpr float kTwoPi = 2.0f * kPi;
 constexpr float kHalfWidth = 1.35f;
 constexpr float kHalfLength = 2.25f;
 constexpr float kHeight = 1.15f;
+std::atomic<float> g_measured_speed_kmh{0.0f};
 
 float Hash01(unsigned value) noexcept {
     value ^= value >> 16;
@@ -20,6 +22,15 @@ float Hash01(unsigned value) noexcept {
     return float(value & 0x00ffffffu) / float(0x01000000u);
 }
 }  // namespace
+
+void PublishMeasuredSpeed(float speed_kmh) noexcept {
+    g_measured_speed_kmh.store(std::isfinite(speed_kmh) && speed_kmh >= 0.0f ? speed_kmh : 0.0f,
+                                std::memory_order_relaxed);
+}
+
+float MeasuredSpeedKmh() noexcept {
+    return g_measured_speed_kmh.load(std::memory_order_relaxed);
+}
 
 float IntensityForSpeed(float speed_kmh) noexcept {
     if (!std::isfinite(speed_kmh) || speed_kmh < 150.0f) return 0.0f;
