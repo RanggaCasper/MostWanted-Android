@@ -48,6 +48,7 @@
 #include "cpu/x86_ops.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
+#include "lightning_aura.h"
 
 namespace game {
 
@@ -240,6 +241,7 @@ void Clear() {
     g_frames.clear();
     g_samples.clear();
     g_clock = g_next_sample = 0;
+    lightning_aura::PublishMeasuredSpeed(0.0f);
     g_conns.clear();
 }
 
@@ -288,6 +290,26 @@ void Sample() {
         g_samples.push_back(s);
         f.count++;
     });
+    // Estimate player speed from successive render-body positions. kRecordRange and
+    // kStreamStep above are in metres; samples use the race clock at 30 Hz.
+    if (f.player >= 0) {
+        const CarSample& current = g_samples[f.first + size_t(f.player)];
+        if (!g_frames.empty() && g_frames.back().player >= 0) {
+            const Frame& previous_frame = g_frames.back();
+            const CarSample& previous = g_samples[previous_frame.first + size_t(previous_frame.player)];
+            const double elapsed = f.t - previous_frame.t;
+            if (elapsed > 1e-4) {
+                const float metres = Length(current.place - previous.place);
+                lightning_aura::PublishMeasuredSpeed(metres / float(elapsed) * 3.6f);
+            } else {
+                lightning_aura::PublishMeasuredSpeed(0.0f);
+            }
+        } else {
+            lightning_aura::PublishMeasuredSpeed(0.0f);
+        }
+    } else {
+        lightning_aura::PublishMeasuredSpeed(0.0f);
+    }
     g_frames.push_back(f);
     // past the budget: the oldest tenth goes
     if (g_samples.size() * sizeof(CarSample) > kMaxBytes && g_frames.size() > 10) {
