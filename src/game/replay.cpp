@@ -1195,7 +1195,7 @@ void DrawLightningAura() {
 
     const uint32_t cam = kernel::R32(kViews + kPlayerView * kViewSize + kViewCamera);
     if (!Committed(cam, kCamFov + sizeof(uint16_t))) return;
-    const float fov = float(kernel::G<uint16_t>(cam + kCamFov)) * (kTwoPi / 65536.0f);
+    const float fov = float(kernel::G<uint16_t>(cam + kCamFov)) * ((2.0f * kPi) / 65536.0f);
     if (!std::isfinite(fov) || fov < 0.05f || fov > 3.0f) return;
 
     const ImVec2 screen = ImGui::GetIO().DisplaySize;
