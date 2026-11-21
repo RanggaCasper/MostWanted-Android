@@ -29,7 +29,7 @@ float IntensityForSpeed(float speed_kmh) noexcept {
 std::size_t BuildVertices(float intensity, float time_seconds, Vertex* output,
                           std::size_t capacity) noexcept {
     if (!output || capacity < kVertexCount || !std::isfinite(intensity) ||
-        !std::isfinite(time_seconds) || intensity <= 0.0f) return 0;
+        !std::isfinite(time_seconds) || time_seconds < 0.0f || intensity <= 0.0f) return 0;
 
     intensity = std::clamp(intensity, 0.0f, 1.0f);
     const float phase = time_seconds * (5.0f + 4.0f * intensity);
