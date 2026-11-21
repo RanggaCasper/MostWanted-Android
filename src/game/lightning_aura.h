@@ -8,6 +8,10 @@ namespace game::lightning_aura {
 // Speed is in km/h. The effect is off below 150 and reaches full intensity at 500.
 float IntensityForSpeed(float speed_kmh) noexcept;
 
+// Speed estimate published by the game-thread player-motion sampler.
+void PublishMeasuredSpeed(float speed_kmh) noexcept;
+float MeasuredSpeedKmh() noexcept;
+
 struct Vertex {
     float x, y, z;       // car-local coordinates; transformed by the car body matrix by the renderer
     float intensity;     // 0..1, for the eventual additive yellow/gold pass
