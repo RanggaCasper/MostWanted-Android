@@ -1180,7 +1180,7 @@ void DrawLightningAura() {
     // in car-local space, transformed by the sampled body pose, then projected by the live
     // player's camera. This keeps the effect attached to the car without touching D3D state.
     const float intensity = lightning_aura::IntensityForSpeed(lightning_aura::MeasuredSpeedKmh());
-    if (intensity <= 0.0f || !Racing()) return;
+    if (intensity <= 0.0f || !Racing() || g_active) return;
 
     CarSample car{};
     {
@@ -1225,7 +1225,7 @@ void DrawLightningAura() {
 
     lightning_aura::Vertex vertices[lightning_aura::kVertexCount];
     const size_t count = lightning_aura::BuildVertices(intensity, float(ImGui::GetTime()),
-                                                        vertices, std::size(vertices));
+                                                        vertices, lightning_aura::kVertexCount);
     if (!count) return;
     ImDrawList* dl = ImGui::GetForegroundDrawList();
     const float scale = screen.y / 720.0f;
