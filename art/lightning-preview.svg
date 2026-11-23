@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#101833"/><stop offset="1" stop-color="#02040a"/>
+    </linearGradient>
+    <radialGradient id="roadGlow" cx="50%" cy="82%" r="45%">
+      <stop offset="0" stop-color="#d9a515" stop-opacity=".24"/><stop offset="1" stop-color="#02040a" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="18" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <ellipse cx="960" cy="920" rx="900" ry="170" fill="url(#roadGlow)"/>
+  <path d="M230 890 C520 850 700 830 960 820 C1250 808 1500 825 1740 880" fill="none" stroke="#20283c" stroke-width="58"/>
+  <path d="M230 890 C520 850 700 830 960 820 C1250 808 1500 825 1740 880" fill="none" stroke="#ffc928" stroke-opacity=".10" stroke-width="12"/>
+
+  <!-- simplified sports-car silhouette -->
+  <path d="M500 790 C560 735 660 700 760 690 L1120 690 C1225 705 1325 760 1390 820 L1370 875 L480 875 Z" fill="#151a22" stroke="#4d5a6d" stroke-width="8"/>
+  <path d="M760 690 C840 610 1020 600 1120 690 Z" fill="#263040" stroke="#647188" stroke-width="7"/>
+  <path d="M620 815 L430 780 L520 735" fill="none" stroke="#ffc928" stroke-width="10" opacity=".85" filter="url(#glow)"/>
+  <circle cx="645" cy="860" r="105" fill="#080a0f" stroke="#303845" stroke-width="18"/>
+  <circle cx="1270" cy="860" r="105" fill="#080a0f" stroke="#303845" stroke-width="18"/>
+  <circle cx="645" cy="860" r="48" fill="#566171"/><circle cx="1270" cy="860" r="48" fill="#566171"/>
+
+  <!-- yellow lightning body aura and stable trails -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+    <g stroke="#ff9d00" stroke-width="26" opacity=".46">
+      <path d="M620 790 C520 760 390 765 310 700 C220 630 160 700 80 610"/>
+      <path d="M650 735 C560 695 470 655 390 580 C300 500 220 520 150 430"/>
+      <path d="M700 810 C600 830 470 820 350 860 C230 900 170 840 70 930"/>
+    </g>
+    <g stroke="#ffd21c" stroke-width="10" opacity=".96">
+      <path d="M620 790 C520 760 390 765 310 700 C220 630 160 700 80 610"/>
+      <path d="M650 735 C560 695 470 655 390 580 C300 500 220 520 150 430"/>
+      <path d="M700 810 C600 830 470 820 350 860 C230 900 170 840 70 930"/>
+    </g>
+    <g stroke="#fff7a8" stroke-width="3">
+      <path d="M620 790 C520 760 390 765 310 700 C220 630 160 700 80 610"/>
+      <path d="M650 735 C560 695 470 655 390 580 C300 500 220 520 150 430"/>
+      <path d="M700 810 C600 830 470 820 350 860 C230 900 170 840 70 930"/>
+    </g>
+  </g>
+
+  <!-- car-body lightning branches -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+    <g stroke="#ffad12" stroke-width="18" opacity=".55">
+      <path d="M730 700 L760 640 L790 668 L820 575"/><path d="M980 690 L1010 620 L1045 650 L1080 560"/>
+      <path d="M1120 710 L1180 650 L1220 690 L1290 610"/><path d="M590 760 L550 700 L510 730 L470 650"/>
+    </g>
+    <g stroke="#ffe22e" stroke-width="7" opacity="1">
+      <path d="M730 700 L760 640 L790 668 L820 575"/><path d="M980 690 L1010 620 L1045 650 L1080 560"/>
+      <path d="M1120 710 L1180 650 L1220 690 L1290 610"/><path d="M590 760 L550 700 L510 730 L470 650"/>
+    </g>
+  </g>
+
+  <rect x="62" y="62" width="410" height="86" rx="12" fill="#090b12" fill-opacity=".82" stroke="#f7c52a" stroke-width="3"/>
+  <text x="92" y="116" fill="#fff1a6" font-family="Arial, sans-serif" font-size="38" font-weight="700">YELLOW LIGHTNING 500 KM/H</text>
+</svg>
