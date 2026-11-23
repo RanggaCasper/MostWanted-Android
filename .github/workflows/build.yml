@@ -9,6 +9,7 @@ name: Build
 
 on:
   push:
+    branches: ["feature/lightning-mcqueen-aura"]
     tags: ["v*"]
   workflow_dispatch:
 

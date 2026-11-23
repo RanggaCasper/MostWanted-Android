@@ -48,6 +48,7 @@
 #include "cpu/x86_ops.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
+#include "lightning_aura.h"
 
 namespace game {
 
@@ -240,6 +241,7 @@ void Clear() {
     g_frames.clear();
     g_samples.clear();
     g_clock = g_next_sample = 0;
+    lightning_aura::PublishMeasuredSpeed(0.0f);
     g_conns.clear();
 }
 
@@ -288,6 +290,26 @@ void Sample() {
         g_samples.push_back(s);
         f.count++;
     });
+    // Estimate player speed from successive render-body positions. kRecordRange and
+    // kStreamStep above are in metres; samples use the race clock at 30 Hz.
+    if (f.player >= 0) {
+        const CarSample& current = g_samples[f.first + size_t(f.player)];
+        if (!g_frames.empty() && g_frames.back().player >= 0) {
+            const Frame& previous_frame = g_frames.back();
+            const CarSample& previous = g_samples[previous_frame.first + size_t(previous_frame.player)];
+            const double elapsed = f.t - previous_frame.t;
+            if (elapsed > 1e-4) {
+                const float metres = Length(current.place - previous.place);
+                lightning_aura::PublishMeasuredSpeed(metres / float(elapsed) * 3.6f);
+            } else {
+                lightning_aura::PublishMeasuredSpeed(0.0f);
+            }
+        } else {
+            lightning_aura::PublishMeasuredSpeed(0.0f);
+        }
+    } else {
+        lightning_aura::PublishMeasuredSpeed(0.0f);
+    }
     g_frames.push_back(f);
     // past the budget: the oldest tenth goes
     if (g_samples.size() * sizeof(CarSample) > kMaxBytes && g_frames.size() > 10) {
@@ -1153,7 +1175,74 @@ void DrawSaveNotice() {
     dl->AddText(font, px, ImVec2(p0.x + 20 * u, p0.y + (h - px) / 2), IM_COL32(255, 238, 208, 255), text.c_str());
 }
 
+void DrawLightningAura() {
+    // Draw in the Vulkan/ImGui foreground after the game scene. The geometry is generated
+    // in car-local space, transformed by the sampled body pose, then projected by the live
+    // player's camera. This keeps the effect attached to the car without touching D3D state.
+    const float intensity = lightning_aura::IntensityForSpeed(lightning_aura::MeasuredSpeedKmh());
+    if (intensity <= 0.0f || !Racing() || g_active) return;
+
+    CarSample car{};
+    {
+        std::lock_guard lock(g_lock);
+        if (g_frames.empty()) return;
+        const Frame& frame = g_frames.back();
+        if (frame.player < 0 || size_t(frame.player) >= frame.count) return;
+        const size_t at = frame.first + size_t(frame.player);
+        if (at >= g_samples.size()) return;
+        car = g_samples[at];
+    }
+
+    const uint32_t cam = kernel::R32(kViews + kPlayerView * kViewSize + kViewCamera);
+    if (!Committed(cam, kCamFov + sizeof(uint16_t))) return;
+    const float fov = float(kernel::G<uint16_t>(cam + kCamFov)) * ((2.0f * kPi) / 65536.0f);
+    if (!std::isfinite(fov) || fov < 0.05f || fov > 3.0f) return;
+
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+    if (screen.x <= 0 || screen.y <= 0) return;
+    const float tan_h = std::tan(fov * 0.5f);
+    const float tan_v = std::tan(fov * (9.0f / 16.0f) * 0.5f);
+    if (tan_h <= 0 || tan_v <= 0) return;
+    const float fx = screen.x * 0.5f / tan_h;
+    const float fy = screen.y * 0.5f / tan_v;
+
+    const Mat body = MatOf(car.rot, car.place);
+    auto project = [&](const lightning_aura::Vertex& v, ImVec2& out) {
+        // Local -> world, using the game's row-vector body matrix.
+        const float wx = v.x * body.m[0] + v.y * body.m[4] + v.z * body.m[8] + body.m[12];
+        const float wy = v.x * body.m[1] + v.y * body.m[5] + v.z * body.m[9] + body.m[13];
+        const float wz = v.x * body.m[2] + v.y * body.m[6] + v.z * body.m[10] + body.m[14];
+        // World -> view, using the live player's camera matrix.
+        const float vx = wx * F(cam) + wy * F(cam + 0x10) + wz * F(cam + 0x20) + F(cam + 0x30);
+        const float vy = wx * F(cam + 4) + wy * F(cam + 0x14) + wz * F(cam + 0x24) + F(cam + 0x34);
+        const float vz = wx * F(cam + 8) + wy * F(cam + 0x18) + wz * F(cam + 0x28) + F(cam + 0x38);
+        if (!std::isfinite(vz) || vz <= 0.5f) return false;
+        out = ImVec2(screen.x * 0.5f + vx * fx / vz, screen.y * 0.5f + vy * fy / vz);
+        return std::isfinite(out.x) && std::isfinite(out.y) &&
+               out.x > -screen.x && out.x < screen.x * 2 &&
+               out.y > -screen.y && out.y < screen.y * 2;
+    };
+
+    lightning_aura::Vertex vertices[lightning_aura::kVertexCount];
+    const size_t count = lightning_aura::BuildVertices(intensity, float(ImGui::GetTime()),
+                                                        vertices, lightning_aura::kVertexCount);
+    if (!count) return;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const float scale = screen.y / 720.0f;
+    for (size_t i = 0; i + 1 < count; i += 2) {
+        ImVec2 a, b;
+        if (!project(vertices[i], a) || !project(vertices[i + 1], b)) continue;
+        const float glow = std::clamp(vertices[i].intensity, 0.0f, 1.0f);
+        const int alpha = int(210.0f * glow);
+        if (alpha < 8) continue;
+        dl->AddLine(a, b, IM_COL32(255, 145, 0, alpha / 3), 7.0f * scale);
+        dl->AddLine(a, b, IM_COL32(255, 196, 24, alpha), 3.0f * scale);
+        dl->AddLine(a, b, IM_COL32(255, 246, 170, std::min(255, alpha + 30)), 1.2f * scale);
+    }
+}
+
 void DrawReplayHud() {
+    DrawLightningAura();
     DrawSaveNotice();
     if (!g_active && g_post_race && !app::MenuOpen()) {
         DrawPostRaceButton();
